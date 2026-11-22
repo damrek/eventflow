@@ -6,8 +6,6 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.context.MessageSourceResolvable;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
@@ -26,6 +24,7 @@ import com.eventflow.catalog.domain.EntityNotFoundException;
 import com.eventflow.catalog.domain.StateConflictException;
 
 import jakarta.servlet.http.HttpServletRequest;
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * Maps expected failures to RFC 9457 problem responses with a stable {@code code} and the
@@ -33,9 +32,8 @@ import jakarta.servlet.http.HttpServletRequest;
  * never leak internal details to the client.
  */
 @RestControllerAdvice
+@Slf4j
 public class ApiExceptionHandler {
-
-    private static final Logger log = LoggerFactory.getLogger(ApiExceptionHandler.class);
 
     @ExceptionHandler(EntityNotFoundException.class)
     public ProblemDetail handleNotFound(EntityNotFoundException exception, HttpServletRequest request) {

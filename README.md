@@ -16,6 +16,7 @@ before being added (see `docs/adr/0001-version-stack.md`).
 | ------------ | --------------------------------------------------- |
 | Backend      | Java 21, Spring Boot 4.2.0, Spring MVC, Spring Data JPA |
 | Build        | Gradle 9.9.2 (wrapper), version catalog             |
+| Boilerplate  | Lombok 1.18.48 (build-time only, policy in ADR 0004) |
 | Database     | PostgreSQL 18, Flyway 12.11.0 (managed by Boot)     |
 | API docs     | springdoc-openapi 3.2.1 (Swagger UI)                |
 | Tests        | JUnit 6, AssertJ, Testcontainers 2.0.5              |

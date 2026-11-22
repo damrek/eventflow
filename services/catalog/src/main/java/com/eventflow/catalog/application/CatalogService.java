@@ -21,7 +21,10 @@ import com.eventflow.catalog.domain.TicketTypeSpec;
 import com.eventflow.catalog.domain.Venue;
 import com.eventflow.catalog.domain.VenueRepository;
 
+import lombok.RequiredArgsConstructor;
+
 @Service
+@RequiredArgsConstructor
 public class CatalogService {
 
     /**
@@ -33,12 +36,6 @@ public class CatalogService {
     private final VenueRepository venues;
     private final EventRepository events;
     private final Clock clock;
-
-    public CatalogService(VenueRepository venues, EventRepository events, Clock clock) {
-        this.venues = venues;
-        this.events = events;
-        this.clock = clock;
-    }
 
     @Transactional
     public Venue createVenue(CreateVenueCommand command) {

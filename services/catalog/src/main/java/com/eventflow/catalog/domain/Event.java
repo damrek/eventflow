@@ -19,6 +19,9 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
+import lombok.AccessLevel;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
 
 /**
  * Event aggregate. Owns its ticket types and the only allowed lifecycle transition:
@@ -26,6 +29,8 @@ import jakarta.persistence.Table;
  */
 @Entity
 @Table(name = "event")
+@Getter
+@NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Event {
 
     @Id
@@ -47,9 +52,6 @@ public class Event {
 
     @OneToMany(mappedBy = "event", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<TicketType> ticketTypes = new ArrayList<>();
-
-    protected Event() {
-    }
 
     public static Event draft(Venue venue, String name, Instant startsAt, List<TicketTypeSpec> specs) {
         if (venue == null) {
@@ -100,6 +102,14 @@ public class Event {
         return ticketTypes.stream().mapToInt(TicketType::getInitialCapacity).sum();
     }
 
+    /**
+     * Kept explicit (Lombok does not generate it) so callers cannot mutate the aggregate's
+     * collection; ticket types are created only through {@link #draft}.
+     */
+    public List<TicketType> getTicketTypes() {
+        return Collections.unmodifiableList(ticketTypes);
+    }
+
     private void addTicketType(TicketType ticketType) {
         ticketTypes.add(ticketType);
     }
@@ -121,29 +131,5 @@ public class Event {
                     "EVENT_CAPACITY_EXCEEDED",
                     "Ticket capacity " + total + " exceeds venue capacity " + venue.getCapacity());
         }
-    }
-
-    public UUID getId() {
-        return id;
-    }
-
-    public String getName() {
-        return name;
-    }
-
-    public Instant getStartsAt() {
-        return startsAt;
-    }
-
-    public EventStatus getStatus() {
-        return status;
-    }
-
-    public Venue getVenue() {
-        return venue;
-    }
-
-    public List<TicketType> getTicketTypes() {
-        return Collections.unmodifiableList(ticketTypes);
     }
 }

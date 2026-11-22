@@ -12,11 +12,16 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
+import lombok.AccessLevel;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
 
 @Entity
 @Table(
         name = "ticket_type",
         uniqueConstraints = @UniqueConstraint(name = "uk_ticket_type_event_name", columnNames = {"event_id", "name"}))
+@Getter
+@NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class TicketType {
 
     private static final int MAX_SCALE = 2;
@@ -36,9 +41,6 @@ public class TicketType {
 
     @Column(name = "initial_capacity", nullable = false)
     private int initialCapacity;
-
-    protected TicketType() {
-    }
 
     private TicketType(UUID id, Event event, String name, BigDecimal price, int initialCapacity) {
         this.id = id;
@@ -71,21 +73,5 @@ public class TicketType {
                     "TICKET_PRICE_SCALE_INVALID", "Ticket price must have at most " + MAX_SCALE + " decimals");
         }
         return price.setScale(MAX_SCALE, RoundingMode.UNNECESSARY);
-    }
-
-    public int getInitialCapacity() {
-        return initialCapacity;
-    }
-
-    public UUID getId() {
-        return id;
-    }
-
-    public String getName() {
-        return name;
-    }
-
-    public BigDecimal getPrice() {
-        return price;
     }
 }

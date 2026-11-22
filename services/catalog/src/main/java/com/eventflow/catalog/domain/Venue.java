@@ -6,9 +6,14 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import lombok.AccessLevel;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
 
 @Entity
 @Table(name = "venue")
+@Getter
+@NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Venue {
 
     @Id
@@ -20,11 +25,9 @@ public class Venue {
     @Column(name = "address", nullable = false, length = 400)
     private String address;
 
+    /** Maximum number of tickets that can physically be sold for this venue. */
     @Column(name = "capacity", nullable = false)
     private int capacity;
-
-    protected Venue() {
-    }
 
     private Venue(UUID id, String name, String address, int capacity) {
         this.id = id;
@@ -40,24 +43,5 @@ public class Venue {
                 Checks.text("VENUE_NAME_INVALID", "Venue name", name, 200),
                 Checks.text("VENUE_ADDRESS_INVALID", "Venue address", address, 400),
                 capacity);
-    }
-
-    /**
-     * Maximum number of tickets that can physically be sold for this venue.
-     */
-    public int getCapacity() {
-        return capacity;
-    }
-
-    public UUID getId() {
-        return id;
-    }
-
-    public String getAddress() {
-        return address;
-    }
-
-    public String getName() {
-        return name;
     }
 }

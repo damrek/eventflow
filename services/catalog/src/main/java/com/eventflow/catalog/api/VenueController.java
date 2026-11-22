@@ -16,16 +16,14 @@ import com.eventflow.catalog.application.CatalogService;
 import com.eventflow.catalog.application.CreateVenueCommand;
 
 import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
 
 @RestController
 @RequestMapping("/api/venues")
+@RequiredArgsConstructor
 public class VenueController {
 
     private final CatalogService catalogService;
-
-    public VenueController(CatalogService catalogService) {
-        this.catalogService = catalogService;
-    }
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)

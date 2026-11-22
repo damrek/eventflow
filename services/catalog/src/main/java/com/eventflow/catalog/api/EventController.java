@@ -27,16 +27,14 @@ import com.eventflow.catalog.domain.Event;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
+import lombok.RequiredArgsConstructor;
 
 @RestController
 @RequestMapping("/api/events")
+@RequiredArgsConstructor
 public class EventController {
 
     private final CatalogService catalogService;
-
-    public EventController(CatalogService catalogService) {
-        this.catalogService = catalogService;
-    }
 
     @GetMapping
     public PageResponse<EventSummaryResponse> list(

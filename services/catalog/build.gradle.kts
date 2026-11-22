@@ -7,7 +7,11 @@ plugins {
 description = "Catalog service: venues, events, ticket types and publication."
 
 dependencies {
+    // The Boot BOM constrains implementation by default; annotation-processing
+    // configurations are separate, so they need the platform explicitly.
     implementation(platform(SpringBootPlugin.BOM_COORDINATES))
+    compileOnly(platform(SpringBootPlugin.BOM_COORDINATES))
+    annotationProcessor(platform(SpringBootPlugin.BOM_COORDINATES))
 
     implementation("org.springframework.boot:spring-boot-starter-webmvc")
     implementation("org.springframework.boot:spring-boot-starter-data-jpa")
@@ -16,6 +20,9 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-actuator")
     implementation("org.flywaydb:flyway-database-postgresql")
     implementation(libs.springdoc.openapi.webmvc.ui)
+
+    compileOnly("org.projectlombok:lombok")
+    annotationProcessor("org.projectlombok:lombok")
 
     runtimeOnly("org.postgresql:postgresql")
 

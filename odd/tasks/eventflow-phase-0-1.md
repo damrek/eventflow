@@ -86,6 +86,11 @@
 - **L7 (deprecation fix):** `HttpStatus.UNPROCESSABLE_ENTITY` is deprecated in Spring 7 in
   favour of `UNPROCESSABLE_CONTENT` (RFC 9110 renamed 422 to "Unprocessable Content"). The
   status code stays 422; the constant and the MockMvc assertion were updated.
+- **L8 (Lombok, user request):** added Lombok 1.18.48 as build-time-only annotation
+  processor and replaced hand-written getters, JPA constructors, Spring injection
+  constructors and the logger. Policy in ADR 0004: no `@Data`/`@Setter`/`@Builder` on
+  entities, no Lombok on records. The BOM platform had to be declared on `compileOnly` and
+  `annotationProcessor` because those configurations do not inherit `implementation`.
 
 ## Verification evidence
 
