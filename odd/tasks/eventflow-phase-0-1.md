@@ -91,6 +91,13 @@
   constructors and the logger. Policy in ADR 0004: no `@Data`/`@Setter`/`@Builder` on
   entities, no Lombok on records. The BOM platform had to be declared on `compileOnly` and
   `annotationProcessor` because those configurations do not inherit `implementation`.
+- **L9 (package-by-feature, user request):** replaced `domain/application/api` with the
+  slices `event/`, `venue/` and `shared/`; each slice owns entity, repository, service,
+  controller and DTOs. `TicketType` stays in `event/` because it is part of the aggregate.
+  `CatalogService` was split into `VenueService` and `EventService`, command records were
+  dropped in favour of `TicketTypeSpec`, and mapping moved to `Response.from(entity)`
+  factories. ADR 0005 records the rules. No test assertion changed: 34 tests still pass,
+  which is the evidence that the HTTP contract is untouched.
 
 ## Verification evidence
 
