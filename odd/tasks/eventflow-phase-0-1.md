@@ -79,3 +79,39 @@
 - **L5 (out of scope, deliberate):** `outbox_event` table and `EventPublished` publishing are
   Phase 3. Creating an unused table now would be speculative; the publish state machine is
   the gate they will consume.
+- **L6 (build fix):** `include("services:catalog")` created an intermediate `:services`
+  project that inherited the Boot plugin and failed `bootJar` with no main class. Replaced
+  with flat project names mapped to directories (`:catalog` → `services/catalog`), which
+  also gives shorter task paths.
+- **L7 (deprecation fix):** `HttpStatus.UNPROCESSABLE_ENTITY` is deprecated in Spring 7 in
+  favour of `UNPROCESSABLE_CONTENT` (RFC 9110 renamed 422 to "Unprocessable Content"). The
+  status code stays 422; the constant and the MockMvc assertion were updated.
+- **L8 (Lombok, user request):** added Lombok 1.18.48 as build-time-only annotation
+  processor and replaced hand-written getters, JPA constructors, Spring injection
+  constructors and the logger. Policy in ADR 0004: no `@Data`/`@Setter`/`@Builder` on
+  entities, no Lombok on records. The BOM platform had to be declared on `compileOnly` and
+  `annotationProcessor` because those configurations do not inherit `implementation`.
+- **L9 (package-by-feature, user request):** replaced `domain/application/api` with the
+  slices `event/`, `venue/` and `shared/`; each slice owns entity, repository, service,
+  controller and DTOs. `TicketType` stays in `event/` because it is part of the aggregate.
+  `CatalogService` was split into `VenueService` and `EventService`, command records were
+  dropped in favour of `TicketTypeSpec`, and mapping moved to `Response.from(entity)`
+  factories. ADR 0005 records the rules. No test assertion changed: 34 tests still pass,
+  which is the evidence that the HTTP contract is untouched.
+
+## Verification evidence
+
+- `./gradlew :catalog:compileJava` — BUILD SUCCESSFUL, no warnings with `-Xlint:deprecation`.
+- `./gradlew :catalog:test` — 34 tests, 0 failures, 0 errors:
+  - `EventDomainTest` 10 tests, `VenueDomainTest` 3 tests, `CatalogApiIntegrationTest` 21 tests.
+  - The integration test starts `postgres:18-alpine` through Testcontainers, so Flyway and
+    the JPA mappings are validated against real PostgreSQL on every run.
+- `./gradlew build` — BUILD SUCCESSFUL (8 tasks).
+- End-to-end smoke test with the built jar against Compose PostgreSQL 18.7:
+  - `/actuator/health` → `{"status":"UP"}`; Flyway applied migration v1.
+  - `POST /api/venues` → 201; `POST /api/events` → 201 `DRAFT` with 2 ticket types.
+  - `GET /api/events` before publish → `totalElements: 0`.
+  - `POST /api/events/{id}/publish` → `PUBLISHED`; listing → 1 element.
+  - Second publish → 409; unknown event → 404 problem+json with `code` and `traceId`.
+  - `/v3/api-docs` → OpenAPI 3.1.0 with the custom title; `/swagger-ui/index.html` → 200.
+- Docker Compose container reported `healthy` before the service started.

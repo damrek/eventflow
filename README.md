@@ -16,6 +16,7 @@ before being added (see `docs/adr/0001-version-stack.md`).
 | ------------ | --------------------------------------------------- |
 | Backend      | Java 21, Spring Boot 4.2.0, Spring MVC, Spring Data JPA |
 | Build        | Gradle 9.9.2 (wrapper), version catalog             |
+| Boilerplate  | Lombok 1.18.48 (build-time only, policy in ADR 0004) |
 | Database     | PostgreSQL 18, Flyway 12.11.0 (managed by Boot)     |
 | API docs     | springdoc-openapi 3.2.1 (Swagger UI)                |
 | Tests        | JUnit 6, AssertJ, Testcontainers 2.0.5              |
@@ -23,7 +24,8 @@ before being added (see `docs/adr/0001-version-stack.md`).
 
 ## Prerequisites
 
-- JDK 21 (`java -version` must report 21)
+- JDK 21 (`java -version` must report 21). If `java` is not on your `PATH`, export
+  `JAVA_HOME` pointing to a JDK 21 installation; the Gradle wrapper reads it.
 - Docker with Compose v2
 
 Gradle is not required: use the wrapper.
@@ -87,11 +89,29 @@ curl -s -X POST localhost:8081/api/events/<event-id>/publish
 ## Repository layout
 
 ```
-services/catalog/     Catalog service (API, domain, persistence, migrations, tests)
+services/catalog/     Catalog service
+  src/main/java/com/eventflow/catalog/
+    event/            Event aggregate: Event, TicketType, repository, service, controller, dto/
+    venue/            Venue aggregate: Venue, repository, service, controller, dto/
+    shared/           Cross-slice primitives: exceptions, RFC 9457 handler, page envelope
+    config/           Clock and OpenAPI beans
 docs/                 Product specification, roadmap, ADRs, performance notes
 odd/tasks/            Feature/task tracking documents
 compose.yaml          Local infrastructure (profile: core)
 ```
+
+## Conventions
+
+- **Constructor injection, no field injection.** Dependencies are `final` fields, generated
+  by Lombok's `@RequiredArgsConstructor`. A single constructor needs no `@Autowired`: Spring
+  injects it implicitly. This keeps components testable without a Spring context, makes a
+  missing bean fail at startup instead of at first use, and prevents mutable dependencies.
+- **One package per aggregate** with its entity, repository, service, controller and DTOs
+  (ADR 0005). `shared/` holds primitives only.
+- **Lombok policy:** getters, JPA constructors, injection constructors and loggers only; no
+  `@Data`/`@Setter`/`@Builder` on entities and no Lombok on records (ADR 0004).
+- **Errors:** every failure returns `application/problem+json` with a stable `code` and the
+  request `traceId`.
 
 ## Roadmap
 
