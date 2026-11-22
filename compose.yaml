@@ -1,0 +1,25 @@
+name: eventflow
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    profiles: ["core"]
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-eventflow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-eventflow}
+      POSTGRES_DB: ${CATALOG_DB:-catalog_db}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      # PostgreSQL 18 images keep the cluster in /var/lib/postgresql/<major>/docker,
+      # so the volume must be mounted at /var/lib/postgresql (not .../data).
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
