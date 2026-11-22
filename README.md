@@ -23,7 +23,8 @@ before being added (see `docs/adr/0001-version-stack.md`).
 
 ## Prerequisites
 
-- JDK 21 (`java -version` must report 21)
+- JDK 21 (`java -version` must report 21). If `java` is not on your `PATH`, export
+  `JAVA_HOME` pointing to a JDK 21 installation; the Gradle wrapper reads it.
 - Docker with Compose v2
 
 Gradle is not required: use the wrapper.
