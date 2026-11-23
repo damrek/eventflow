@@ -6,6 +6,15 @@ Docker Compose levanta PostgreSQL, RabbitMQ, Redis, simulador de pagos y los ser
 
 Cada servicio debe tener Dockerfile multi-stage, ejecutar como usuario no root y exponer Actuator health. Configuración por variables de entorno. El frontend se sirve detrás de un reverse proxy sencillo.
 
+**Implementado (Fase 6, ADR 0013).** `docker/service.Dockerfile` es multi-stage y se parametriza
+con `ARG SERVICE`; la etapa de ejecución usa `-jre-alpine`, corre como uid `10001` y expone
+`/actuator/health`. `frontend/Dockerfile` compila la SPA una vez y ofrece dos destinos: `runtime-proxy`
+(Compose, nginx con `envsubst`) y `runtime-static` (k3d, nginx sin privilegios). Perfiles de
+`compose.yaml`: `core` (PostgreSQL, RabbitMQ, Redis) y `app` (los cinco servicios y la SPA con
+`APP_PORT`, por defecto `8080`, como único puerto publicado). Comandos:
+`./scripts/stack-up.sh`, `./scripts/stack-verify.sh` (flujo completo por la puerta de entrada) y
+`./scripts/stack-down.sh [--volumes]`.
+
 ## Kubernetes local
 
 Desplegar en k3d después de estabilizar Compose. Recursos mínimos:
@@ -18,6 +27,17 @@ Desplegar en k3d después de estabilizar Compose. Recursos mínimos:
 - Una réplica inicial; escalar Booking a 2 para probar concurrencia.
 
 No incluir Helm, ArgoCD, Istio ni cluster remoto en el MVP. Se permite mantener dependencias stateful en Compose al principio y migrarlas a k3d cuando sea razonable.
+
+**Implementado (Fase 6, ADR 0013).** `deploy/k8s/` es un proyecto kustomize (`kubectl apply -k
+deploy/k8s`) con namespace, ConfigMap, Secret creado desde `.env` por `scripts/k3d-up.sh`
+(`eventflow-secrets`, nunca versionado), PostgreSQL y RabbitMQ como StatefulSet con PVC, Redis como
+Deployment sin volumen (ADR 0011), Deployment + Service por API, frontend tras un único Ingress y
+tres `Middleware` de Traefik que quitan `/api/catalog`, `/api/booking` y `/api/notification`. Booking
+corre con `replicas: 2`; el resto con una. Sondas: `startupProbe` y `livenessProbe` sobre
+`/actuator/health/liveness` (nunca dependen de un sistema externo) y `readinessProbe` sobre
+`/actuator/health/readiness`, que incluye `db`. Comandos: `./scripts/k3d-up.sh`,
+`./scripts/k3d-verify.sh`, `./scripts/k3d-down.sh [--delete-cluster]`. El Ingress responde en
+`http://localhost:8090` para convivir con Compose.
 
 ## Proveedor de pagos simulado
 

@@ -1,0 +1,16 @@
+# Build context for docker/service.Dockerfile is the repository root, so everything that is not
+# needed to build a bootJar stays out of it.
+.git
+.gitignore
+.idea
+.gradle
+build
+**/build
+frontend/node_modules
+frontend/dist
+docs
+odd
+scripts
+deploy
+compose.yaml
+*.md

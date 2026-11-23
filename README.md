@@ -6,7 +6,8 @@ count: it is a small system where every concurrency, idempotency and failure-han
 claim is provable with tests.
 
 **Current status: Phase 0 (bootstrap), Phase 1 (Catalog), Phase 2 (Booking), Phase 3 (Events),
-Phase 4 (Payment/Saga) and Phase 5 (Frontend + Redis waiting room) complete.**
+Phase 4 (Payment/Saga), Phase 5 (Frontend + Redis waiting room) and Phase 6 (Deployment: Compose and
+k3d) complete.**
 
 ## Stack
 
@@ -26,6 +27,7 @@ before being added (see `docs/adr/0001-version-stack.md`).
 | Frontend     | React 19.3.1, Vite 8.3.8, TypeScript 5.9.3, Tailwind CSS 4.3.5, TanStack Query 5.108.1 (ADR 0012) |
 | Tests        | JUnit 6, AssertJ, Testcontainers 2.0.5, Awaitility; Vitest 5 + Testing Library |
 | Local infra  | Docker Compose (PostgreSQL + RabbitMQ + Redis, profile `core`) |
+| Deployment   | Container images (multi-stage, non-root), Compose profile `app`, k3d + Traefik (ADR 0013) |
 
 ## Prerequisites
 
@@ -59,11 +61,10 @@ command does not return until you press `Ctrl+C`. The SPA is also a foreground p
 | 5 | `./gradlew :payment:bootRun` | Payment service on `:8084` (internal, no REST API) |
 | 6 | `cd frontend && npm ci && npm run dev` | SPA on `http://localhost:5173` |
 
-From any other terminal, confirm the backend is up (the simulator has no actuator; it is exercised
-through payments):
+From any other terminal, confirm the backend is up:
 
 ```bash
-for port in 8081 8082 8083 8084; do curl -fsS "localhost:$port/actuator/health"; echo; done
+for port in 8081 8082 8083 8084 8085; do curl -fsS "localhost:$port/actuator/health"; echo; done
 ```
 
 Or start the five services and the SPA together in the background, with one log per process under
@@ -76,6 +77,43 @@ tail -f build/dev/catalog.log
 ```
 
 A service that is already healthy on its port is reused and not touched by `dev-down`.
+
+### Run the whole system in containers
+
+The same system also runs as images, with no Gradle or Node process on the host. Only the front
+door publishes a port, and nginx performs the same `/api/*` prefix rewrite Vite does in
+development:
+
+```bash
+./scripts/stack-up.sh      # build and start profiles "core" and "app", wait for every healthcheck
+./scripts/stack-verify.sh  # the documented flow through http://localhost:8080
+./scripts/stack-down.sh    # stop the containers (add --volumes to delete PostgreSQL/RabbitMQ data)
+```
+
+Everything is served from `http://localhost:8080`: the SPA at `/`, and `/api/catalog`,
+`/api/booking`, `/api/notification` on the same origin. `APP_PORT` in `.env` changes the published
+port. The images are `eventflow/<service>:${EVENTFLOW_TAG:-local}`, built by
+`docker/service.Dockerfile` (`ARG SERVICE`) and `frontend/Dockerfile` (ADR 0013).
+
+### Kubernetes (k3d)
+
+The cluster deployment is self-contained — PostgreSQL, RabbitMQ and Redis run inside it, so nothing
+from the Compose stack is reused — and it is where the differentiated probes, the resource limits
+and the two Booking replicas live:
+
+```bash
+./scripts/k3d-up.sh    # cluster, images, kubectl apply -k deploy/k8s
+./scripts/k3d-verify.sh
+./scripts/k3d-down.sh               # stop the cluster, keep it for a fast restart
+./scripts/k3d-down.sh --delete-cluster
+```
+
+Requires `k3d` and `kubectl` on `PATH`. The ingress answers on `http://localhost:8090`
+(`K3D_INGRESS_PORT`), which leaves `8080` to Compose; Traefik routes and rewrites `/api/catalog`,
+`/api/booking` and `/api/notification`, and `/` serves the SPA. Probes are
+`/actuator/health/liveness` and `/actuator/health/readiness`, where readiness includes the database
+and liveness never does. Credentials come from `.env`: `k3d-up.sh` creates the `eventflow-secrets`
+Secret, so no credential is committed.
 
 ### Seed a demo event
 
@@ -112,7 +150,8 @@ The script is idempotent: it only creates what is absent.
 
 - Swagger UI: `http://localhost:8081/swagger-ui.html`, `:8082`, `:8083`
 - OpenAPI JSON: `http://localhost:8081/v3/api-docs`, `:8082`, `:8083`
-- Health: `http://localhost:8081/actuator/health`, `:8082`, `:8083`, `:8084`
+- Health: `http://localhost:8081/actuator/health`, `:8082`, `:8083`, `:8084`, `:8085`
+  (`/actuator/health/liveness` and `/actuator/health/readiness` are the probe paths)
 - RabbitMQ management UI: http://localhost:15672 (`eventflow` / `eventflow`)
 
 ## Tests
@@ -352,8 +391,11 @@ frontend/             React SPA (Vite, TypeScript, Tailwind)
   src/routes/         Route table
 docs/                 Product specification, roadmap, ADRs, performance notes
 odd/tasks/            Feature/task tracking documents
+docker/service.Dockerfile  Multi-stage image for any service (`--build-arg SERVICE=`)
 docker/postgres/init/ One database per service on a fresh volume
-compose.yaml          Local infrastructure (profile: core)
+deploy/k8s/           kustomize project applied by scripts/k3d-up.sh
+scripts/              dev-up/dev-down (host), stack-up/stack-verify/stack-down, k3d-up/verify/down
+compose.yaml          Infrastructure (profile: core) and the images (profile: app)
 ```
 
 ## Conventions
@@ -379,7 +421,7 @@ compose.yaml          Local infrastructure (profile: core)
 | 3     | Events: RabbitMQ, Outbox/Inbox, Notification | done      |
 | 4     | Payment: saga, simulator, resilience       | done        |
 | 5     | Frontend: React SPA, Redis waiting room     | done        |
-| 6     | Deployment: Compose and k3d                | pending     |
+| 6     | Deployment: Compose and k3d                | done        |
 | 7     | Observability: Prometheus, Grafana, OTEL   | pending     |
 | 8     | Portfolio: k6, CI, ADRs, demo              | pending     |
 

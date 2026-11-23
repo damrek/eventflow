@@ -1,0 +1,22 @@
+# Everything in deploy/k8s is applied with `kubectl apply -k deploy/k8s` (see scripts/k3d-up.sh).
+# The Secret is not here on purpose: it is created from .env by the script, so no credential is
+# committed.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: eventflow
+
+resources:
+  - namespace.yaml
+  - config.yaml
+  - infra/postgres.yaml
+  - infra/rabbitmq.yaml
+  - infra/redis.yaml
+  - apps/payment-simulator.yaml
+  - apps/catalog.yaml
+  - apps/booking.yaml
+  - apps/notification.yaml
+  - apps/payment.yaml
+  - apps/frontend.yaml
+  - middlewares.yaml
+  - ingress.yaml

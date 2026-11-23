@@ -1,0 +1,31 @@
+# The browser keeps one origin, exactly as under `npm run dev` and Compose:
+#   /api/catalog/events -> catalog Service /api/events
+# The prefix is removed with a Traefik middleware instead of making every service answer under
+# /api/<service>, so the REST contract stays the same in all three environments.
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: strip-catalog
+spec:
+  replacePathRegex:
+    regex: ^/api/catalog(.*)
+    replacement: /api$1
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: strip-booking
+spec:
+  replacePathRegex:
+    regex: ^/api/booking(.*)
+    replacement: /api$1
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: strip-notification
+spec:
+  replacePathRegex:
+    regex: ^/api/notification(.*)
+    replacement: /api$1

@@ -10,6 +10,14 @@ server:
 simulator:
   timeout-delay: ${PAYMENT_SIMULATOR_TIMEOUT_DELAY:PT5S}
 
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  # The simulator owns no database and no broker, so the default liveness and readiness groups
+  # (Boot 4.2 enables both) already describe it: the application state alone.
+
 logging:
   pattern:
     level: "%5p [traceId=%X{traceId:-none}]"

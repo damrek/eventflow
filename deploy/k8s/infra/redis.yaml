@@ -1,0 +1,66 @@
+# Redis holds only a throttle: the waiting room, admission tokens and rate-limit counters (ADR
+# 0011). It is a Deployment without a volume on purpose, because a restart is allowed to lose that
+# state and PostgreSQL still decides what can be held.
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  labels:
+    app: redis
+spec:
+  selector:
+    app: redis
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: redis
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      # Kubernetes service links would inject <SERVICE>_PORT=tcp://host:port for every
+      # Service in the namespace, which collides with the *_PORT variables these images read.
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 1000
+      containers:
+        - name: redis
+          image: redis:8-alpine
+          args: ["redis-server", "--save", "", "--appendonly", "no"]
+          ports:
+            - name: redis
+              containerPort: 6379
+          startupProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            failureThreshold: 30
+            periodSeconds: 2
+          readinessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            periodSeconds: 10
+          livenessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            periodSeconds: 20
+            failureThreshold: 4
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
