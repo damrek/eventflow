@@ -108,6 +108,80 @@ class ReservationDomainTest {
     }
 
     @Test
+    void checkoutMovesAHoldToPendingPaymentOnlyOnce() {
+        Reservation reservation = hold(List.of(line(general, 1, "25.00")));
+
+        reservation.checkout(NOW.plusSeconds(60));
+        assertThat(reservation.getStatus()).isEqualTo(ReservationStatus.PENDING_PAYMENT);
+
+        assertThatThrownBy(() -> reservation.checkout(NOW.plusSeconds(120)))
+                .isInstanceOf(StateConflictException.class)
+                .hasMessageContaining("cannot start a payment");
+    }
+
+    @Test
+    void refusesToCheckoutPastTheDeadline() {
+        Reservation reservation = hold(List.of(line(general, 1, "25.00")));
+
+        assertThatThrownBy(() -> reservation.checkout(NOW.plus(TTL)))
+                .isInstanceOf(StateConflictException.class)
+                .hasMessageContaining("expired at");
+        assertThat(reservation.getStatus()).isEqualTo(ReservationStatus.HELD);
+    }
+
+    @Test
+    void confirmsOnlyALivePendingPayment() {
+        Reservation reservation = hold(List.of(line(general, 1, "25.00")));
+        reservation.checkout(NOW.plusSeconds(30));
+
+        reservation.confirm(NOW.plusSeconds(60));
+        assertThat(reservation.getStatus()).isEqualTo(ReservationStatus.CONFIRMED);
+        assertThatThrownBy(() -> reservation.confirm(NOW.plusSeconds(90)))
+                .isInstanceOf(StateConflictException.class)
+                .hasMessageContaining("cannot be confirmed");
+    }
+
+    @Test
+    void refusesToConfirmAPaymentWhoseDeadlinePassed() {
+        Reservation reservation = hold(List.of(line(general, 1, "25.00")));
+        reservation.checkout(NOW.plusSeconds(30));
+
+        assertThatThrownBy(() -> reservation.confirm(NOW.plus(TTL)))
+                .isInstanceOf(StateConflictException.class)
+                .hasMessageContaining("expired at");
+        assertThat(reservation.isDue(NOW.plus(TTL))).isTrue();
+        assertThat(reservation.getStatus()).isEqualTo(ReservationStatus.PENDING_PAYMENT);
+    }
+
+    @Test
+    void failsOnlyAPendingPaymentAndRecordsItsPayment() {
+        Reservation reservation = hold(List.of(line(general, 1, "25.00")));
+        UUID paymentId = UUID.randomUUID();
+        reservation.checkout(NOW.plusSeconds(30));
+
+        reservation.recordPayment(paymentId);
+        reservation.failPayment();
+
+        assertThat(reservation.getStatus()).isEqualTo(ReservationStatus.PAYMENT_FAILED);
+        assertThatThrownBy(() -> reservation.failPayment())
+                .isInstanceOf(StateConflictException.class)
+                .hasMessageContaining("no payment to fail");
+        assertThatThrownBy(() -> reservation.recordPayment(UUID.randomUUID()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("already linked");
+    }
+
+    @Test
+    void expiresAPendingPaymentReservation() {
+        Reservation reservation = hold(List.of(line(general, 1, "25.00")));
+        reservation.checkout(NOW.plusSeconds(30));
+
+        reservation.expire(NOW.plus(TTL));
+
+        assertThat(reservation.getStatus()).isEqualTo(ReservationStatus.EXPIRED);
+    }
+
+    @Test
     void ownershipIsExact() {
         Reservation reservation = hold(List.of(line(general, 1, "25.00")));
 

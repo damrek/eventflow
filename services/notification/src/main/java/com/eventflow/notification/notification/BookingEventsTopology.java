@@ -25,6 +25,7 @@ public class BookingEventsTopology {
     public static final String CONFIRMED_ROUTING_KEY = "booking.confirmed";
     public static final String CANCELLED_ROUTING_KEY = "booking.cancelled";
     public static final String EXPIRED_ROUTING_KEY = "booking.expired";
+    public static final String PAYMENT_FAILED_ROUTING_KEY = "booking.payment-failed";
 
     @Bean
     public TopicExchange eventExchange(MessagingProperties properties) {
@@ -42,7 +43,7 @@ public class BookingEventsTopology {
                 properties.exchange(),
                 properties.deadLetterExchange(),
                 QUEUE,
-                List.of(CONFIRMED_ROUTING_KEY, CANCELLED_ROUTING_KEY, EXPIRED_ROUTING_KEY),
+                List.of(CONFIRMED_ROUTING_KEY, CANCELLED_ROUTING_KEY, EXPIRED_ROUTING_KEY, PAYMENT_FAILED_ROUTING_KEY),
                 properties.retry().delays());
     }
 }

@@ -1,12 +1,15 @@
 package com.eventflow.booking.reservation;
 
 /**
- * Reservation lifecycle reachable in this phase. {@code PENDING_PAYMENT}, {@code CONFIRMED} and
- * {@code PAYMENT_FAILED} arrive with the payment saga (Phase 4), together with the migration
- * that widens the database {@code CHECK}.
+ * Reservation lifecycle, including the payment steps of the saga (Phase 4):
+ * {@code HELD -> PENDING_PAYMENT -> CONFIRMED | PAYMENT_FAILED}, plus {@code HELD} or
+ * {@code PENDING_PAYMENT} expiring when the hold deadline passes.
  */
 public enum ReservationStatus {
     HELD,
+    PENDING_PAYMENT,
+    CONFIRMED,
+    PAYMENT_FAILED,
     EXPIRED,
     CANCELLED
 }

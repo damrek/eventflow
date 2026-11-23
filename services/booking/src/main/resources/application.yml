@@ -31,6 +31,12 @@ spring:
         acknowledge-mode: auto
         prefetch: 20
         default-requeue-rejected: false
+        retry:
+          # One handler attempt per delivery: the recoverer moves the message to its retry queue,
+          # so the backoff is queue-based, survives a restart and never blocks a consumer thread.
+          enabled: true
+          max-retries: 0
+          stateless: true
 
 server:
   port: ${BOOKING_PORT:8082}

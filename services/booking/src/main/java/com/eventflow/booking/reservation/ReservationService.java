@@ -79,6 +79,22 @@ public class ReservationService {
     }
 
     /**
+     * Starts the payment step. The state change and the request event commit together, so a
+     * reservation is never {@code PENDING_PAYMENT} without a payment on its way.
+     */
+    @Transactional
+    public Reservation checkout(String userId, UUID reservationId) {
+        Reservation reservation = requireOwned(userId, reservationId);
+        reservation.checkout(clock.instant());
+        publisher.publish(
+                PaymentEventPayload.REQUESTED,
+                PaymentEventPayload.REQUESTED_ROUTING_KEY,
+                reservation.getId(),
+                PaymentEventPayload.of(reservation));
+        return reservation;
+    }
+
+    /**
      * Holds one unit batch per ticket type, ordered by ticket type so two multi-item
      * reservations always take row locks in the same order and cannot deadlock. A zero-row
      * update means PostgreSQL saw no stock under the row lock; the whole transaction then rolls

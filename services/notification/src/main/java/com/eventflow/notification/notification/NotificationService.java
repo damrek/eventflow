@@ -59,6 +59,8 @@ public class NotificationService {
                     "Reservation " + reservationId + " for event " + eventId + " was cancelled; its tickets were released.";
             case BOOKING_EXPIRED ->
                     "Reservation " + reservationId + " for event " + eventId + " expired; its tickets were released.";
+            case BOOKING_PAYMENT_FAILED ->
+                    "The payment for reservation " + reservationId + " was rejected; its tickets were released.";
         };
     }
 }

@@ -29,9 +29,11 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 /**
- * Reservation aggregate. Owns its items and the state machine reachable in this phase:
- * {@code HELD -> CANCELLED} and {@code HELD -> EXPIRED}. Both transitions are guarded here, so a
- * late or duplicated caller can never confirm or release an expired reservation twice.
+ * Reservation aggregate. Owns its items and the state machine:
+ * {@code HELD -> PENDING_PAYMENT -> CONFIRMED | PAYMENT_FAILED}, {@code HELD -> CANCELLED} and
+ * {@code HELD | PENDING_PAYMENT -> EXPIRED}. Every transition is guarded here, so a late or
+ * duplicated caller can never confirm, fail or release an expired reservation twice, and a
+ * payment authorized after the deadline is compensated instead of selling released inventory.
  *
  * <p>{@code @Version} makes two concurrent state transitions of the same reservation conflict
  * instead of overwriting each other; the loser gets HTTP 409 and reloads.
@@ -60,6 +62,10 @@ public class Reservation {
 
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
+
+    /** Payment that settled this reservation; set when a payment result arrives. */
+    @Column(name = "payment_id")
+    private UUID paymentId;
 
     @Version
     @Column(name = "version", nullable = false)
@@ -110,12 +116,62 @@ public class Reservation {
         status = ReservationStatus.CANCELLED;
     }
 
+    /** Starts the payment step. Only a live hold can be paid for; a second checkout is a conflict. */
+    public void checkout(Instant now) {
+        if (status != ReservationStatus.HELD) {
+            throw new StateConflictException(
+                    "RESERVATION_NOT_PAYABLE", "Reservation " + id + " is " + status + " and cannot start a payment");
+        }
+        if (!expiresAt.isAfter(now)) {
+            throw new StateConflictException(
+                    "RESERVATION_EXPIRED", "Reservation " + id + " expired at " + expiresAt);
+        }
+        status = ReservationStatus.PENDING_PAYMENT;
+    }
+
+    /** Payment authorized while the hold was still live: the units become sold. */
+    public void confirm(Instant now) {
+        if (status != ReservationStatus.PENDING_PAYMENT) {
+            throw new StateConflictException(
+                    "RESERVATION_NOT_CONFIRMABLE", "Reservation " + id + " is " + status + " and cannot be confirmed");
+        }
+        if (!expiresAt.isAfter(now)) {
+            throw new StateConflictException(
+                    "RESERVATION_EXPIRED", "Reservation " + id + " expired at " + expiresAt);
+        }
+        status = ReservationStatus.CONFIRMED;
+    }
+
+    /** Payment rejected while the hold was still live: the units go back to availability. */
+    public void failPayment() {
+        if (status != ReservationStatus.PENDING_PAYMENT) {
+            throw new StateConflictException(
+                    "RESERVATION_NOT_FAILABLE", "Reservation " + id + " is " + status + " and has no payment to fail");
+        }
+        status = ReservationStatus.PAYMENT_FAILED;
+    }
+
+    /** Records the payment that produced the result; a different payment is a bug, not a retry. */
+    public void recordPayment(UUID paymentId) {
+        DomainChecks.notNull("RESERVATION_PAYMENT_REQUIRED", "Payment id", paymentId);
+        if (this.paymentId != null && !this.paymentId.equals(paymentId)) {
+            throw new IllegalStateException(
+                    "Reservation " + id + " is already linked to payment " + this.paymentId + ", not " + paymentId);
+        }
+        this.paymentId = paymentId;
+    }
+
+    public boolean isDue(Instant now) {
+        return !expiresAt.isAfter(now);
+    }
+
     /**
-     * Only the expiry worker calls this, for a reservation it claimed as due. The deadline is
-     * re-checked here so a bad claim cannot release units that are still legitimately held.
+     * Only the expiry worker or a payment-result listener calls this, for a reservation whose
+     * deadline passed. The deadline is re-checked here so a bad claim cannot release units that
+     * are still legitimately held.
      */
     public void expire(Instant now) {
-        if (status != ReservationStatus.HELD) {
+        if (status != ReservationStatus.HELD && status != ReservationStatus.PENDING_PAYMENT) {
             throw new StateConflictException(
                     "RESERVATION_NOT_EXPIRY_ELIGIBLE", "Reservation " + id + " is " + status + " and cannot expire");
         }
