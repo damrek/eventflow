@@ -14,6 +14,9 @@ services:
       # PostgreSQL 18 images keep the cluster in /var/lib/postgresql/<major>/docker,
       # so the volume must be mounted at /var/lib/postgresql (not .../data).
       - postgres-data:/var/lib/postgresql
+      # One instance, one database per service: the script creates booking_db on a fresh
+      # volume; an existing volume needs `docker compose down -v` once.
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
