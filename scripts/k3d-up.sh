@@ -33,6 +33,13 @@ if k3d cluster list -o json | grep -q "\"name\":\"${CLUSTER}\""; then
     echo "Delete it with ./scripts/k3d-down.sh --delete-cluster and re-run." >&2
     exit 1
   fi
+  # `k3d-down.sh` stops the cluster without deleting it; restart it here instead of failing on the
+  # first kubectl call. `cluster list <name>` is filtered to this cluster, so the counters below
+  # cannot belong to another one.
+  if k3d cluster list "${CLUSTER}" -o json | grep -q '"serversRunning":0'; then
+    echo "==> Starting the stopped cluster ${CLUSTER}"
+    k3d cluster start "${CLUSTER}" --wait
+  fi
 else
   echo "==> Creating cluster ${CLUSTER} (1 server, 1 agent, ingress on :${INGRESS_PORT})"
   k3d cluster create "${CLUSTER}" \
@@ -44,8 +51,9 @@ fi
 
 echo "==> Namespace and credentials"
 kubectl create namespace eventflow --dry-run=client -o yaml | kubectl apply -f - >/dev/null
-# The Secret is never committed: it is built from .env on every run, so rotating a password means
-# editing .env and re-running this script.
+# The Secret is never committed: it is built from .env on every run. PostgreSQL and RabbitMQ read
+# their credentials only when their volumes are initialised, so on an existing cluster a password
+# change also needs the volume deleted (see ADR 0013).
 kubectl -n eventflow create secret generic eventflow-secrets \
   --from-literal=POSTGRES_USER="${POSTGRES_USER:-eventflow}" \
   --from-literal=POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-eventflow}" \

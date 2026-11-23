@@ -3,13 +3,19 @@
 # The prefix rewrite mirrors frontend/vite.config.ts: /api/catalog/events -> /api/events, so the
 # browser code never learns where a service lives. The upstreams are environment variables
 # rendered by the official nginx entrypoint (envsubst only replaces variables that exist in the
-# environment, so $uri and $host are left alone).
+# environment, so $uri, $host and $catalog are left alone).
+#
+# The upstream is passed through a variable and resolved per request by Docker's embedded DNS
+# (127.0.0.11), so recreating one service — `docker compose up -d --force-recreate catalog` — is
+# picked up within `valid=` instead of leaving the prefix at 502 until nginx restarts.
 server {
     listen 80;
     server_name _;
 
     root /usr/share/nginx/html;
     index index.html;
+
+    resolver 127.0.0.11 ipv6=off valid=10s;
 
     gzip on;
     gzip_min_length 1024;
@@ -20,8 +26,16 @@ server {
     proxy_send_timeout 30s;
     proxy_read_timeout 30s;
 
+    location = /healthz {
+        access_log off;
+        add_header Content-Type text/plain;
+        return 200 "ok\n";
+    }
+
     location /api/catalog/ {
-        proxy_pass http://${CATALOG_UPSTREAM}/api/;
+        set $catalog ${CATALOG_UPSTREAM};
+        rewrite ^/api/catalog/(.*)$ /api/$1 break;
+        proxy_pass http://$catalog;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -29,7 +43,9 @@ server {
     }
 
     location /api/booking/ {
-        proxy_pass http://${BOOKING_UPSTREAM}/api/;
+        set $booking ${BOOKING_UPSTREAM};
+        rewrite ^/api/booking/(.*)$ /api/$1 break;
+        proxy_pass http://$booking;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -37,18 +53,13 @@ server {
     }
 
     location /api/notification/ {
-        proxy_pass http://${NOTIFICATION_UPSTREAM}/api/;
+        set $notification ${NOTIFICATION_UPSTREAM};
+        rewrite ^/api/notification/(.*)$ /api/$1 break;
+        proxy_pass http://$notification;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
-    }
-
-    # Compose healthcheck endpoint for this container; the API paths are proxied below.
-    location = /healthz {
-        access_log off;
-        add_header Content-Type text/plain;
-        return 200 "ok\n";
     }
 
     # Client-side routing: every unknown path is the SPA shell.
