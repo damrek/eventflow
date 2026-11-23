@@ -122,4 +122,6 @@ room (Phase 5), metrics/tracing (Phase 7).
   (`setExposedPorts` + `setPortBindings`) and asserts the outbox row instead of the message,
   because Testcontainers recreates (and empties) the broker on restart; (c) the mailbox test
   needed to await the consumer instead of assuming delivery before the HTTP call.
-- **L8 (delivery):** work-unit commits on `feat/events`; push, PR and merge stay a human decision.
+- **L8 (delivery):** four work-unit commits on `feat/events`; the user asked to publish, so the
+  branch was pushed and PR #3 opened against `main` as a single `size:exception` review (3,726
+  changed lines, same shape as Phase 2). Merge remains a human decision.
