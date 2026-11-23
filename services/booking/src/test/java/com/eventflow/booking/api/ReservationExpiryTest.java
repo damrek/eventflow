@@ -6,39 +6,39 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.jdbc.Sql;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import com.eventflow.booking.reservation.ReservationExpiryWorker;
+import com.eventflow.booking.inventory.InventoryItemSpec;
+import com.eventflow.booking.inventory.InventoryService;
 import com.jayway.jsonpath.JsonPath;
 
 /**
  * Expiration is the only path that returns units without a client asking for it, so it is
  * tested through the real worker against real PostgreSQL.
  */
-@SpringBootTest(properties = "booking.expiry.interval=PT1H")
+@SpringBootTest(properties = {
+        "booking.expiry.interval=PT1H",
+        "eventflow.messaging.outbox.interval=200ms",
+        "eventflow.messaging.retry.delays=200ms,200ms,200ms",
+        "spring.rabbitmq.connection-timeout=2s"
+})
 @AutoConfigureMockMvc
-@Testcontainers
 @Sql(scripts = "/db/cleanup.sql", executionPhase = Sql.ExecutionPhase.BEFORE_TEST_METHOD)
-class ReservationExpiryTest {
+class ReservationExpiryTest extends BookingIntegrationTest {
 
-    @Container
-    @ServiceConnection
-    static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:18-alpine");
 
     @Autowired
     private MockMvc mockMvc;
@@ -48,6 +48,9 @@ class ReservationExpiryTest {
 
     @Autowired
     private ReservationExpiryWorker worker;
+
+    @Autowired
+    private InventoryService inventory;
 
     private final UUID eventId = UUID.randomUUID();
     private final UUID general = UUID.randomUUID();
@@ -118,11 +121,8 @@ class ReservationExpiryTest {
         assertThat(availableOf(availability)).isEqualTo(10);
     }
 
-    private void provision(int capacity) throws Exception {
-        mockMvc.perform(post("/api/internal/inventory/events/{eventId}", eventId)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(ApiFixtures.inventory(general.toString(), "25.00", capacity)))
-                .andExpect(status().isCreated());
+    private void provision(int capacity) {
+        inventory.provision(eventId, List.of(new InventoryItemSpec(general, new BigDecimal("25.00"), capacity)));
     }
 
     private String createReservation(int quantity) throws Exception {

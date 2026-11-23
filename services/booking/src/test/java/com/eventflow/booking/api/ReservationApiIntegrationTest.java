@@ -8,37 +8,37 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.jdbc.Sql;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.postgresql.PostgreSQLContainer;
 
+import com.eventflow.booking.inventory.InventoryItemSpec;
+import com.eventflow.booking.inventory.InventoryService;
 import com.jayway.jsonpath.JsonPath;
 
 /**
  * Reservation contract against a real PostgreSQL container. Each test also proves that Flyway
  * and the JPA mappings agree, including the {@code available + held + sold = capacity} check.
  */
-@SpringBootTest(properties = "booking.expiry.interval=PT1H")
+@SpringBootTest(properties = {
+        "booking.expiry.interval=PT1H",
+        "eventflow.messaging.outbox.interval=200ms",
+        "eventflow.messaging.retry.delays=200ms,200ms,200ms",
+        "spring.rabbitmq.connection-timeout=2s"
+})
 @AutoConfigureMockMvc
-@Testcontainers
 @Sql(scripts = "/db/cleanup.sql", executionPhase = Sql.ExecutionPhase.BEFORE_TEST_METHOD)
-class ReservationApiIntegrationTest {
+class ReservationApiIntegrationTest extends BookingIntegrationTest {
 
-    @Container
-    @ServiceConnection
-    static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:18-alpine");
 
     private final UUID eventId = UUID.randomUUID();
     private final UUID general = UUID.randomUUID();
@@ -46,6 +46,9 @@ class ReservationApiIntegrationTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @Autowired
+    private InventoryService inventory;
 
     @Test
     void createsReservationThatHoldsUnits() throws Exception {
@@ -254,11 +257,10 @@ class ReservationApiIntegrationTest {
                 .andExpect(jsonPath("$.instance").value("/api/reservations/" + unknown));
     }
 
-    private void provision() throws Exception {
-        mockMvc.perform(post("/api/internal/inventory/events/{eventId}", eventId)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(ApiFixtures.inventoryTwoTypes(general.toString(), vip.toString())))
-                .andExpect(status().isCreated());
+    private void provision() {
+        inventory.provision(eventId, List.of(
+                new InventoryItemSpec(general, new BigDecimal("25.00"), 400),
+                new InventoryItemSpec(vip, new BigDecimal("60.00"), 50)));
     }
 
     private String createReservation(String key, UUID ticketTypeId, int quantity) throws Exception {

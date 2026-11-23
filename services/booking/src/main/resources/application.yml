@@ -17,8 +17,35 @@ spring:
     enabled: true
     locations: classpath:db/migration
 
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USER:eventflow}
+    password: ${RABBITMQ_PASSWORD:eventflow}
+    # The outbox relay marks a row published only after waitForConfirmsOrDie succeeds.
+    publisher-confirm-type: correlated
+    listener:
+      simple:
+        # The listener transaction commits before the container acks; a crash in between
+        # redelivers the message and the inbox makes the second delivery a no-op.
+        acknowledge-mode: auto
+        prefetch: 20
+        default-requeue-rejected: false
+
 server:
   port: ${BOOKING_PORT:8082}
+
+eventflow:
+  messaging:
+    exchange: ${EVENTFLOW_EXCHANGE:eventflow.events}
+    dead-letter-exchange: ${EVENTFLOW_DLX:eventflow.events.dlx}
+    outbox:
+      interval: ${EVENTFLOW_OUTBOX_INTERVAL:PT1S}
+      batch-size: ${EVENTFLOW_OUTBOX_BATCH_SIZE:50}
+      confirm-timeout: PT5S
+    retry:
+      # One retry queue per entry, in order; the last failure goes to the DLQ.
+      delays: ${EVENTFLOW_RETRY_DELAYS:5s,15s,45s}
 
 booking:
   reservation:

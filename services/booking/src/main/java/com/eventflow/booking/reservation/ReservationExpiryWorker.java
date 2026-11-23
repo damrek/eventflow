@@ -11,6 +11,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.eventflow.booking.config.BookingProperties;
 import com.eventflow.booking.inventory.EventInventoryRepository;
+import com.eventflow.booking.shared.messaging.EventPublisher;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -29,6 +30,7 @@ public class ReservationExpiryWorker {
     private final EventInventoryRepository inventory;
     private final Clock clock;
     private final BookingProperties properties;
+    private final EventPublisher publisher;
 
     @Scheduled(fixedDelayString = "${booking.expiry.interval}")
     @Transactional
@@ -42,6 +44,11 @@ public class ReservationExpiryWorker {
                             "Expiry claimed reservation " + reservationId + " which is no longer readable"));
             reservation.expire(now);
             ReservationInventory.releaseAll(inventory, reservation);
+            publisher.publish(
+                    ReservationEventPayload.EXPIRED,
+                    ReservationEventPayload.EXPIRED_ROUTING_KEY,
+                    reservation.getId(),
+                    ReservationEventPayload.from(reservation));
             log.info("Expired reservation {}", reservationId);
         }
         return due.size();
