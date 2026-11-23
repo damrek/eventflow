@@ -1,6 +1,7 @@
 # ADR 0007 — Provisional inventory provisioning before `EventPublished`
 
-- **Status:** accepted (superseded in Phase 3 by the `EventPublished` consumer)
+- **Status:** superseded by ADR 0009 (the `EventPublished` consumer replaced the HTTP trigger in
+  Phase 3; the endpoint described here no longer exists)
 - **Date:** 2026-11-23
 - **Deciders:** tech lead
 
