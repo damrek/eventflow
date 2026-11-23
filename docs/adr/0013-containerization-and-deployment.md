@@ -63,7 +63,9 @@ the stateful dependencies live in the cluster.
    cluster, so the cluster needs nothing from Compose and the two stacks can be run independently.
    Redis has no PVC because a restart is allowed to lose the queue and the tokens (ADR 0011).
    Credentials are never committed: `scripts/k3d-up.sh` creates the `eventflow-secrets` Secret from
-   `.env`, so rotating a password is an `.env` edit plus a re-run of the script.
+   `.env`. PostgreSQL and RabbitMQ only read those values when their volumes are initialised, so
+   changing a password on an existing cluster also requires deleting the corresponding PVC (and the
+   data with it); the Secret alone does not rotate it.
 7. **Booking gets two replicas without new coordination.** The hold is one conditional SQL statement,
    the outbox relay and the expiry worker claim with `FOR UPDATE SKIP LOCKED`, and admission pops
    queue members atomically in Lua, so two replicas serve at once. The phase gate is therefore a

@@ -53,9 +53,10 @@
   Builds run with `COMPOSE_PARALLEL_LIMIT=1` so the five Gradle builds do not contend for one cache
   mount.
 - **S6 — k3d cluster and configuration.** `scripts/k3d-up.sh` creates cluster `eventflow`
-  (1 server + 1 agent, Traefik enabled, 80/443 mapped), creates the namespace, the Secret from
-  `.env` (`kubectl create secret generic eventflow-secrets`; no credential is committed) and the
-  ConfigMap, builds and imports the six images, then `kubectl apply -k deploy/k8s`. Stateful
+  (1 server + 1 agent, Traefik enabled, only port 80 mapped from the load balancer — TLS is out of
+  scope), creates the namespace, the Secret from `.env` (`kubectl create secret generic
+  eventflow-secrets`; no credential is committed) and the ConfigMap, builds and imports the six
+  images, then `kubectl apply -k deploy/k8s`. Stateful
   dependencies run inside the cluster so the deployment is self-contained: PostgreSQL (StatefulSet,
   PVC, the same idempotent init script as a ConfigMap), RabbitMQ (StatefulSet, PVC) and Redis
   (Deployment, no PVC — ephemeral by ADR 0011). `scripts/k3d-down.sh [--delete-cluster]` stops it.
@@ -83,7 +84,7 @@
 - **T6 — k3d cluster, configuration and workloads** (S6, S7). Route: inline. Done: cluster,
   manifests and scripts verified by `k3d-verify.sh` (commit after the docs).
 - **T7 — k3d verification and docs** (S8). Route: inline with an independent verifier (Risk: item 5).
-  In progress.
+  Done: verifier verdict `met` on S1–S8 with no change-caused blocker; four advisories actioned (L13).
 
 ## Log
 
@@ -140,3 +141,24 @@
   The script now waits for the deleted pod to disappear before the readiness step and compares
   restart counts only for pods that existed before the outage; a replacement pod is not evidence
   about liveness.
+- **L13 (2026-11-23, independent verification):** `gentle-ai-verify` read the whole document and the
+  diff `a3e29fb..1e43bba` and returned `met` for S1–S8 with no change-caused blocker, plus four
+  advisories:
+  1. S6 said "80/443 mapped" and only 80 is: the sentence now says port 80 and that TLS is out of
+     scope.
+  2. `k3d-up.sh` could not restart a stopped cluster (the documented `k3d-down.sh` then
+     `k3d-up.sh` path): it now runs `k3d cluster start` when `serversRunning` is `0`, verified by
+     stopping the cluster and running the script again ("Starting the stopped cluster eventflow",
+     then Booking `2/2` and the ingress answering `200`).
+  3. The ADR claimed a password rotation is an `.env` edit plus a re-run; PostgreSQL and RabbitMQ
+     read credentials only when their volumes are initialised, so ADR 0013 §6 and the script comment
+     now say the PVC must be deleted too.
+  4. The Compose front door cached the upstream address at nginx start, so recreating one service
+     could leave its prefix at `502`. The template now resolves the upstream per request through
+     Docker's embedded DNS (`resolver 127.0.0.11`, `valid=10s`, `set $catalog …` + `rewrite`). The
+     rewrite was re-verified (`/api/catalog/events` and `/api/booking/...` reach the services) and
+     the whole flow passed again through `:8080`; the IP-change path itself could not be
+     reproduced because Compose reassigns the same address on `--force-recreate`.
+  The verifier's own probe ships as `scripts/deployment-invariants-test.sh` (67 checks over S1, S3,
+  S6, S7, L9 and L10, green at HEAD and red when `enableServiceLinks`, `listen 8080` or the
+  readiness `db` member is removed).
