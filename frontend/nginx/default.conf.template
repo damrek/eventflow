@@ -1,0 +1,58 @@
+# Compose front door: one origin for the SPA and the three service prefixes.
+#
+# The prefix rewrite mirrors frontend/vite.config.ts: /api/catalog/events -> /api/events, so the
+# browser code never learns where a service lives. The upstreams are environment variables
+# rendered by the official nginx entrypoint (envsubst only replaces variables that exist in the
+# environment, so $uri and $host are left alone).
+server {
+    listen 80;
+    server_name _;
+
+    root /usr/share/nginx/html;
+    index index.html;
+
+    gzip on;
+    gzip_min_length 1024;
+    gzip_types text/css application/javascript application/json image/svg+xml;
+
+    # Checkout waits for the simulated provider, so the timeouts are generous but finite.
+    proxy_connect_timeout 5s;
+    proxy_send_timeout 30s;
+    proxy_read_timeout 30s;
+
+    location /api/catalog/ {
+        proxy_pass http://${CATALOG_UPSTREAM}/api/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location /api/booking/ {
+        proxy_pass http://${BOOKING_UPSTREAM}/api/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location /api/notification/ {
+        proxy_pass http://${NOTIFICATION_UPSTREAM}/api/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # Compose healthcheck endpoint for this container; the API paths are proxied below.
+    location = /healthz {
+        access_log off;
+        add_header Content-Type text/plain;
+        return 200 "ok\n";
+    }
+
+    # Client-side routing: every unknown path is the SPA shell.
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}
