@@ -5,12 +5,12 @@ reservations, a waiting room and a simulated payment provider. The goal is not f
 count: it is a small system where every concurrency, idempotency and failure-handling
 claim is provable with tests.
 
-**Current status: Phase 0 (bootstrap), Phase 1 (Catalog), Phase 2 (Booking), Phase 3 (Events) and
-Phase 4 (Payment/Saga) complete.**
+**Current status: Phase 0 (bootstrap), Phase 1 (Catalog), Phase 2 (Booking), Phase 3 (Events),
+Phase 4 (Payment/Saga) and Phase 5 (Frontend + Redis waiting room) complete.**
 
 ## Stack
 
-Versions are verified against Context7, Maven Central metadata and official documentation
+Versions are verified against Context7, Maven Central/npm metadata and official documentation
 before being added (see `docs/adr/0001-version-stack.md`).
 
 | Layer        | Technology                                          |
@@ -22,14 +22,17 @@ before being added (see `docs/adr/0001-version-stack.md`).
 | API docs     | springdoc-openapi 3.2.1 (Swagger UI)                |
 | Messaging    | RabbitMQ 4.2, Spring AMQP 4.2 (AMQP 0.9.1), Outbox/Inbox |
 | Resilience   | Resilience4j 2.4.0 circuit breaker, Boot `RestClient` |
-| Tests        | JUnit 6, AssertJ, Testcontainers 2.0.5, Awaitility   |
-| Local infra  | Docker Compose (PostgreSQL + RabbitMQ, profile `core`) |
+| Throttle     | Redis 8 (waiting room, admission tokens, rate limit; ADR 0011) |
+| Frontend     | React 19.3.1, Vite 8.3.8, TypeScript 5.9.3, Tailwind CSS 4.3.5, TanStack Query 5.108.1 (ADR 0012) |
+| Tests        | JUnit 6, AssertJ, Testcontainers 2.0.5, Awaitility; Vitest 5 + Testing Library |
+| Local infra  | Docker Compose (PostgreSQL + RabbitMQ + Redis, profile `core`) |
 
 ## Prerequisites
 
 - JDK 21 (`java -version` must report 21). If `java` is not on your `PATH`, export
   `JAVA_HOME` pointing to a JDK 21 installation; the Gradle wrapper reads it.
 - Docker with Compose v2
+- Node.js 22+ and npm 11 for the frontend (`frontend/package-lock.json` is committed)
 
 Gradle is not required: use the wrapper.
 
@@ -37,13 +40,19 @@ Gradle is not required: use the wrapper.
 
 ```bash
 cp .env.example .env
-docker compose --profile core up -d  # PostgreSQL on :5432, RabbitMQ on :5672 (UI :15672)
+docker compose --profile core up -d  # PostgreSQL :5432, RabbitMQ :5672 (UI :15672), Redis :6379
 ./gradlew :catalog:bootRun           # Catalog API on localhost:8081
 ./gradlew :booking:bootRun           # Booking API on localhost:8082
 ./gradlew :notification:bootRun      # Notification API on localhost:8083
 ./gradlew :payment-simulator:bootRun # Simulated payment provider on localhost:8085
 ./gradlew :payment:bootRun           # Payment service on localhost:8084 (internal, no REST API)
+
+cd frontend && npm ci && npm run dev # SPA on http://localhost:5173
 ```
+
+The SPA talks to its own origin: Vite proxies `/api/catalog` → `:8081`, `/api/booking` → `:8082`
+and `/api/notification` → `:8083` in both `dev` and `preview`, so no CORS configuration is needed
+(ADR 0012). `npm run build` produces the static bundle in `frontend/dist`.
 
 One PostgreSQL instance hosts one database per service (`catalog_db`, `booking_db`,
 `notification_db`, `payment_db`). Those databases are created by
@@ -65,13 +74,18 @@ ones) before starting the services.
 ./gradlew :notification:test
 ./gradlew :payment:test
 ./gradlew :payment-simulator:test
+
+cd frontend && npm test          # Vitest + Testing Library
+cd frontend && npm run build     # tsc -b + Vite production build
 ```
 
-Integration tests start real PostgreSQL and RabbitMQ containers through Testcontainers, and the
-Payment tests talk to a real HTTP provider double. No H2, no in-memory database and no mocked
-broker are used anywhere (see `docs/adr/0003-test-strategy.md`). The messaging tests prove the
-Phase 3 gate (a stopped broker leaves the event in the outbox; duplicates produce a single effect)
-and the Phase 4 gate (approved, rejected, timeout, duplicated event and late payment).
+Integration tests start real PostgreSQL, RabbitMQ and Redis containers through Testcontainers, and
+the Payment tests talk to a real HTTP provider double. No H2, no in-memory database, no mocked
+broker and no mocked Redis are used anywhere (see `docs/adr/0003-test-strategy.md`). The messaging
+tests prove the Phase 3 gate (a stopped broker leaves the event in the outbox; duplicates produce a
+single effect), the Phase 4 gate (approved, rejected, timeout, duplicated event and late payment)
+and the Phase 5 gate (join, position, batch admission, token expiry, two-replica rate limit and a
+Redis restart that loses the queue without overselling).
 
 ## API (Catalog)
 
@@ -112,7 +126,9 @@ curl -s -X POST localhost:8081/api/events/<event-id>/publish
 | Method | Path                                        | Description                                         |
 | ------ | ------------------------------------------- | --------------------------------------------------- |
 | GET    | `/api/events/{eventId}/availability`        | Capacity/available/held/sold per ticket type        |
-| POST   | `/api/reservations`                         | Hold units; requires `X-User-Id` + `Idempotency-Key` |
+| POST   | `/api/waiting-room/{eventId}/join`          | Join the queue; returns position or admission token |
+| GET    | `/api/waiting-room/{eventId}/status`        | Poll the position; returns `NOT_JOINED`, `WAITING` or `ADMITTED` |
+| POST   | `/api/reservations`                         | Hold units; requires `X-User-Id` + `Idempotency-Key` and, while the event has a queue, `X-Admission-Token` |
 | GET    | `/api/reservations/{reservationId}`         | Read the caller's reservation                       |
 | POST   | `/api/reservations/{reservationId}/checkout` | `HELD -> PENDING_PAYMENT` and request the payment  |
 | POST   | `/api/reservations/{reservationId}/cancel`  | Cancel a `HELD` reservation and release its units   |
@@ -139,13 +155,51 @@ curl -s -X POST localhost:8081/api/events/<event-id>/publish
 EVENT=<event-id>
 TYPE=<ticket-type-id>
 
+# Join the waiting room, poll until ADMITTED and keep the token.
+curl -s -X POST localhost:8082/api/waiting-room/$EVENT/join -H 'X-User-Id: demo-user'
+curl -s localhost:8082/api/waiting-room/$EVENT/status -H 'X-User-Id: demo-user'
+
+# With a queue active, the admission token is required; without one the gate is off.
 curl -s -X POST localhost:8082/api/reservations \
   -H 'Content-Type: application/json' \
   -H 'X-User-Id: demo-user' -H 'Idempotency-Key: order-1' \
+  -H 'X-Admission-Token: <token>' \
   -d "{\"eventId\":\"$EVENT\",\"items\":[{\"ticketTypeId\":\"$TYPE\",\"quantity\":2}]}"
 
 curl -s localhost:8082/api/events/$EVENT/availability
 ```
+
+### Waiting room (Redis)
+
+`POST /api/waiting-room/{eventId}/join` inserts the user once with a server-assigned position;
+`GET .../status` is the poll the SPA uses. A scheduled dispatcher admits a batch per event while
+PostgreSQL says the event still has `available > 0`, and writes a short-lived admission token. While
+the event has a queue, `POST /api/reservations` requires a live `X-Admission-Token` for that user
+(`403 NOT_ADMITTED` otherwise); without a queue there is no wait to skip and the gate is off. Join
+and reservation creation are rate limited per user in Redis (`429` + `Retry-After`). Redis is a
+throttle, never the stock authority: a Redis restart loses the queue but the sale stays correct,
+and while Redis is down the gate and limiter fail open (ADR 0011). The counters live in Redis, so
+two Booking replicas share the same window; a test starts a second application instance to prove
+it.
+
+## Frontend
+
+`frontend/` is a React 19 + TypeScript SPA built with Vite and styled with Tailwind CSS 4.
+
+| Route | Screen |
+| ----- | ------ |
+| `/` | Published events with loading, empty and error states |
+| `/events/:id` | Event detail, live availability and the ticket form (React Hook Form + Zod) |
+| `/events/:id/waiting-room` | Position, waiting count and admission polling every 2 s |
+| `/events/:id/reserve` | Hold summary, countdown, checkout and live payment status |
+| `/reservations` | Locally remembered reservations with live status and the notification mailbox |
+| `/reservations/:id` | One reservation and its payment status |
+
+The demo user id lives in `localStorage` and is sent as `X-User-Id`; it is not authentication. No
+confirmation is simulated: every status comes from Booking and the mailbox from Notification.
+Commands: `npm ci`, `npm run dev`, `npm test`, `npm run build`, `npm run preview` (the preview
+keeps the same proxy). Versions are pinned in `frontend/package.json` and
+`frontend/package-lock.json` (ADR 0012).
 
 ## Payment (internal) and its simulator
 
@@ -240,6 +294,12 @@ services/notification/ Notification service (user mailbox)
     notification/     Notification entity, booking-events consumer, REST mailbox
     shared/           Cross-slice primitives and messaging (envelope, inbox, retry topology)
     config/           Clock, OpenAPI and the listener recoverer
+frontend/             React SPA (Vite, TypeScript, Tailwind)
+  src/api/            Typed clients for the three services and the problem+json parser
+  src/features/       catalog, waiting-room, reservation, notifications, identity
+  src/components/     Layout and shared presentational pieces
+  src/hooks/          Countdown and other client hooks
+  src/routes/         Route table
 docs/                 Product specification, roadmap, ADRs, performance notes
 odd/tasks/            Feature/task tracking documents
 docker/postgres/init/ One database per service on a fresh volume
@@ -268,7 +328,7 @@ compose.yaml          Local infrastructure (profile: core)
 | 2     | Booking: inventory, reservations, expiry  | done        |
 | 3     | Events: RabbitMQ, Outbox/Inbox, Notification | done      |
 | 4     | Payment: saga, simulator, resilience       | done        |
-| 5     | Frontend: React SPA                        | pending     |
+| 5     | Frontend: React SPA, Redis waiting room     | done        |
 | 6     | Deployment: Compose and k3d                | pending     |
 | 7     | Observability: Prometheus, Grafana, OTEL   | pending     |
 | 8     | Portfolio: k6, CI, ADRs, demo              | pending     |

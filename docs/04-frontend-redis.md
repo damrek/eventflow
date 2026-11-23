@@ -44,3 +44,21 @@ Cache-aside de eventos/detalles con TTL corto. Invalidar al publicar/actualizar 
 - Token expirado o inválido no permite saltarse la espera.
 - El rate limit funciona con dos instancias de Booking.
 - La app sigue siendo correcta si Redis se reinicia: quizá se pierde la cola, pero nunca se duplica o vende inventario por ello.
+
+## As built (Fase 5, ADR 0011)
+
+- Estructuras: cola `waiting:{eventId}` (sorted set, score asignado por el servidor con
+  `waiting-seq:{eventId}`), admisión `waiting-token:{eventId}:{userId}` con TTL, registro
+  `waiting-events` de eventos con cola. Unirse dos veces conserva la posición; un token caducado
+  devuelve al final de la cola.
+- Un dispatcher programado admite lotes cuando el inventario de PostgreSQL tiene `available > 0`;
+  un evento agotado no admite a nadie hasta que se liberen unidades. La cola y el token son Lua
+  atómicos (ADR 0011).
+- El token se exige solo mientras exista la cola del evento. Sin cola no hay espera que saltarse;
+  la creación de reserva sigue funcionando igual. Con Redis caído, la puerta y el rate limit fallan
+  abiertos y PostgreSQL sigue decidiendo el stock; unirse o consultar responde `503`.
+- Rate limit de ventana fija por usuario y endpoint en Redis (`rate:{endpoint}:{userId}`), con
+  `429` + `Retry-After`; la prueba de dos instancias arranca un segundo contexto de Booking contra
+  los mismos contenedores.
+- Fuera de alcance en esta fase: caché de catálogo (no está en los criterios de aceptación),
+  Redis Streams y locks.

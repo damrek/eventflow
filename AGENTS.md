@@ -9,12 +9,12 @@ specification is in `docs/` (Spanish) and the workflow rules for agents in
 ## Commands
 
 ```bash
-docker compose --profile core up -d   # PostgreSQL on :5432, RabbitMQ on :5672 (required by bootRun)
+docker compose --profile core up -d   # PostgreSQL :5432, RabbitMQ :5672, Redis :6379 (required by bootRun)
 ./gradlew build                       # compile + all tests (Docker required)
 ./gradlew :catalog:test               # tests only
 ./gradlew :catalog:test --tests "com.eventflow.catalog.event.EventDomainTest"
 ./gradlew :catalog:bootRun            # Catalog API on localhost:8081
-./gradlew :booking:test               # Booking tests (domain, API, concurrency, expiry, events)
+./gradlew :booking:test               # Booking tests (domain, API, concurrency, expiry, events, waiting room)
 ./gradlew :booking:bootRun            # Booking API on localhost:8082
 ./gradlew :notification:test          # Notification tests (consumer, mailbox API)
 ./gradlew :notification:bootRun       # Notification API on localhost:8083
@@ -22,11 +22,16 @@ docker compose --profile core up -d   # PostgreSQL on :5432, RabbitMQ on :5672 (
 ./gradlew :payment:bootRun            # Payment service on localhost:8084 (internal, no REST API)
 ./gradlew :payment-simulator:test     # Simulator amount rules
 ./gradlew :payment-simulator:bootRun  # Simulated provider on localhost:8085
+cd frontend && npm ci && npm run dev  # React SPA on localhost:5173
+cd frontend && npm test               # Vitest + Testing Library
+cd frontend && npm run build          # tsc -b + Vite production build
 ```
 
 - There is no system Gradle: always use `./gradlew` (wrapper 9.9.2).
 - This machine has no `java` on `PATH`. Export `JAVA_HOME` to a JDK 21 before running Gradle;
   the local one is `~/.jdks/graalvm-ce-21.0.2`.
+- The frontend needs Node 22+ and npm 11. `~/.npmrc` enforces `min-release-age=3` (and
+  `ignore-scripts=true`): never bypass it, and pin versions outside that guard (ADR 0012).
 - The Gradle projects are `:catalog` → `services/catalog`, `:booking` → `services/booking`,
   `:notification` → `services/notification`, `:payment` → `services/payment` and
   `:payment-simulator` → `services/payment-simulator`.
@@ -35,9 +40,10 @@ docker compose --profile core up -d   # PostgreSQL on :5432, RabbitMQ on :5672 (
 
 ## Tests
 
-- Integration tests start `postgres:18-alpine` and `rabbitmq:4-management-alpine` through
-  Testcontainers, so **Docker is a hard prerequisite**; there is no skip switch, no H2 and no
-  mocked broker anywhere (ADR 0003).
+- Integration tests start `postgres:18-alpine`, `rabbitmq:4-management-alpine` and
+  `redis:8-alpine` through Testcontainers, so **Docker is a hard prerequisite**; there is no skip
+  switch, no H2 and no mocked broker or Redis anywhere (ADR 0003). Booking's base class pins the
+  Redis host port so the outage test can restart the container.
 - A service's test base class starts its containers **once per JVM** and never stops them, and
   each test class declares its own `@SpringBootTest(properties = …)`; the Spring context is cached
   across classes with the same configuration, so a context must not outlive its containers.
@@ -64,6 +70,12 @@ docker compose --profile core up -d   # PostgreSQL on :5432, RabbitMQ on :5672 (
   `PaymentSagaIntegrationTest` (checkout, confirm, reject, duplicate, late payment compensated) and
   `NotificationConsumerTest` (`BOOKING_PAYMENT_FAILED`). Payment tests call a real HTTP double
   (`FakePaymentProvider`), never a mocked gateway.
+- The Phase 5 gate: `WaitingRoomIntegrationTest` (join, stable position, batch admission, token
+  issue/expiry, `403 NOT_ADMITTED`, gate off without a queue), `WaitingRoomRateLimitTest` (429 +
+  `Retry-After`), `RateLimitSharedStateTest` (two real Booking application instances share one
+  Redis window) and `WaitingRoomRedisOutageTest` (stop/restart Redis: 503 for the room, sales still
+  correct and never oversold). Frontend: `npm test` covers the critical flow and the
+  waiting/reservation states; `npm run build` is a gate.
 
 ## Layout and ownership
 
@@ -71,10 +83,21 @@ docker compose --profile core up -d   # PostgreSQL on :5432, RabbitMQ on :5672 (
   (ADR 0005). Each slice owns entity, value objects, repository, service, controller and
   `dto/`. Do not reintroduce `domain/`, `application/` or `api/` layers.
 - Booking slices: `inventory/` (EventInventory, conditional hold/release/confirm, provisioning,
-  availability, `EventPublished` consumer and its topology) and `reservation/` (Reservation
+  availability, `EventPublished` consumer and its topology), `reservation/` (Reservation
   aggregate, idempotent creation, checkout, cancel, expiry worker, payment-result consumer and
-  refund compensation). `shared/` holds exceptions, the RFC 9457 handler, `CurrentUserProvider`
-  and `shared/messaging/`.
+  refund compensation) and `waitingroom/` (queue, admission dispatcher, admission tokens; ADR 0011).
+  `shared/` holds exceptions, the RFC 9457 handler, `CurrentUserProvider`,
+  `shared/web/rate/` and `shared/messaging/`.
+- `waitingroom/` is a throttle, never the stock authority: it admits batches only while PostgreSQL
+  has `available > 0`, and the token is required only while the event's queue exists. While Redis
+  is down join/status answer `503` but the gate and the limiter fail open, so a sale is never
+  blocked or oversold by a Redis failure. Never make Redis decide availability, and never add a
+  read-then-write hold behind the gate.
+- `frontend/` is the React SPA (Vite + TypeScript + Tailwind). It calls its own origin under
+  `/api/catalog`, `/api/booking`, `/api/notification`; the Vite dev/preview proxy maps them to the
+  services. Keep the slices under `src/api`, `src/features`, `src/components`, `src/hooks` and
+  `src/routes`; render backend states, never a simulated confirmation; pin exact versions in
+  `package.json` and `package-lock.json` (ADR 0012).
 - Payment slices: `payment/` (Payment aggregate, attempts, `PaymentRequested` consumer and
   `PaymentRefundRequested` compensation, outbox, topology), `provider/` (`PaymentGateway` and its
   HTTP implementation behind the circuit breaker) and `shared/`; `config/` holds the properties,
@@ -141,9 +164,13 @@ docker compose --profile core up -d   # PostgreSQL on :5432, RabbitMQ on :5672 (
 ## Toolchain quirks (verified against Boot 4.2.0)
 
 - Boot 4 modular starters: `spring-boot-starter-webmvc` (not `-web`), `spring-boot-starter-flyway`,
-  `spring-boot-starter-rabbitmq` for RabbitMQ AMQP 0.9.1 (`spring.rabbitmq.*`), and
+  `spring-boot-starter-rabbitmq` for RabbitMQ AMQP 0.9.1 (`spring.rabbitmq.*`),
+  `spring-boot-starter-data-redis` for the waiting room (`spring.data.redis.*`, Lettuce), and
   `spring-boot-starter-restclient` for `RestClient` plus `spring.http.clients.*` timeouts.
   `spring-boot-starter-amqp` is the generic AMQP 1.0 client and is *not* what this project uses.
+- Redis scripts return one integer each (`DefaultRedisScript<Long>`); do not rely on multi-bulk
+  result serialization with `StringRedisTemplate`. Rate-limit counters and the waiting-room queue
+  live only in Redis, and the `waiting-events` registry replaces `KEYS`/`SCAN` in the dispatcher.
 - Spring AMQP 4.2 exchanges raw `Message`s here: producers send a pre-serialized envelope and
   consumers parse it with the Boot `JsonMapper`, so no `__TypeId__` header leaves the service.
   Boot applies a unique `MessageRecoverer` bean to the listener factory **only when listener retry
