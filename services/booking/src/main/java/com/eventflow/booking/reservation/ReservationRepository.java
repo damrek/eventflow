@@ -23,7 +23,7 @@ public interface ReservationRepository extends JpaRepository<Reservation, UUID> 
      */
     @Query(value = """
             select id from reservation
-             where status = 'HELD'
+             where status in ('HELD', 'PENDING_PAYMENT')
                and expires_at <= :now
              order by expires_at
              limit :batchSize

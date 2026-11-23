@@ -48,4 +48,9 @@ public class ReservationController {
     public ReservationResponse cancel(@PathVariable UUID reservationId, HttpServletRequest httpRequest) {
         return ReservationResponse.from(reservations.cancel(currentUser.userId(httpRequest), reservationId));
     }
+
+    @PostMapping("/{reservationId}/checkout")
+    public ReservationResponse checkout(@PathVariable UUID reservationId, HttpServletRequest httpRequest) {
+        return ReservationResponse.from(reservations.checkout(currentUser.userId(httpRequest), reservationId));
+    }
 }

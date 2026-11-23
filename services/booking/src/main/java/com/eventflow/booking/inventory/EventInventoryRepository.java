@@ -51,4 +51,23 @@ public interface EventInventoryRepository extends JpaRepository<EventInventory, 
             @Param("eventId") UUID eventId,
             @Param("ticketTypeId") UUID ticketTypeId,
             @Param("quantity") int quantity);
+
+    /**
+     * Turns held units into sold ones when the payment is authorized. The {@code held >= quantity}
+     * guard makes a second confirmation of the same units impossible; the balance CHECK still has
+     * to hold afterwards.
+     */
+    @Modifying
+    @Query(value = """
+            update event_inventory
+               set held = held - :quantity,
+                   sold = sold + :quantity
+             where event_id = :eventId
+               and ticket_type_id = :ticketTypeId
+               and held >= :quantity
+            """, nativeQuery = true)
+    int confirm(
+            @Param("eventId") UUID eventId,
+            @Param("ticketTypeId") UUID ticketTypeId,
+            @Param("quantity") int quantity);
 }
