@@ -17,5 +17,9 @@ build/
 .DS_Store
 .atl/
 
+# Frontend
+node_modules/
+frontend/dist/
+
 # Logs
 *.log
