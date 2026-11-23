@@ -19,7 +19,7 @@ ENV CATALOG_UPSTREAM=catalog:8081 \
     NOTIFICATION_UPSTREAM=notification:8083
 EXPOSE 80
 
-FROM nginx:1.29-alpine AS runtime-static
+FROM nginxinc/nginx-unprivileged:1.29-alpine AS runtime-static
 COPY --from=build /app/dist /usr/share/nginx/html
 COPY nginx/static.conf /etc/nginx/conf.d/default.conf
-EXPOSE 80
+EXPOSE 8080
