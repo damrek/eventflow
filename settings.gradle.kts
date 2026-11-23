@@ -17,3 +17,6 @@ rootProject.name = "eventflow"
 // One Gradle project per service, physically located under services/.
 include("catalog")
 project(":catalog").projectDir = file("services/catalog")
+
+include("booking")
+project(":booking").projectDir = file("services/booking")
