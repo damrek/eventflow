@@ -8,7 +8,8 @@ public enum NotificationType {
 
     BOOKING_CONFIRMED("BookingConfirmed"),
     BOOKING_CANCELLED("BookingCancelled"),
-    BOOKING_EXPIRED("BookingExpired");
+    BOOKING_EXPIRED("BookingExpired"),
+    BOOKING_PAYMENT_FAILED("BookingPaymentFailed");
 
     private final String eventType;
 

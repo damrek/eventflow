@@ -96,6 +96,18 @@ class NotificationConsumerTest extends NotificationIntegrationTest {
     }
 
     @Test
+    void recordsAPaymentFailureNotification() throws Exception {
+        send("BookingPaymentFailed", "booking.payment-failed", UUID.randomUUID());
+        await().atMost(20, SECONDS).untilAsserted(() -> assertThat(countInbox()).isEqualTo(1));
+
+        mockMvc.perform(get("/api/notifications").param("userId", USER))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content", hasSize(1)))
+                .andExpect(jsonPath("$.content[0].type").value("BOOKING_PAYMENT_FAILED"))
+                .andExpect(jsonPath("$.content[0].content").value(containsString(reservationId.toString())));
+    }
+
+    @Test
     void listsNewestFirstAndPaginates() throws Exception {
         notifications.save(Notification.of(NotificationType.BOOKING_CONFIRMED, USER, "first", UUID.randomUUID(),
                 Instant.parse("2026-01-01T10:00:00Z")));
