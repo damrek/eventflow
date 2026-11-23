@@ -66,6 +66,17 @@ through payments):
 for port in 8081 8082 8083 8084; do curl -fsS "localhost:$port/actuator/health"; echo; done
 ```
 
+Or start the five services and the SPA together in the background, with one log per process under
+`build/dev/`:
+
+```bash
+./scripts/dev-up.sh     # infrastructure, missing databases, jars, services, SPA; waits until ready
+./scripts/dev-down.sh   # stop what dev-up started (add --infra to stop the containers too)
+tail -f build/dev/catalog.log
+```
+
+A service that is already healthy on its port is reused and not touched by `dev-down`.
+
 ### Seed a demo event
 
 The SPA lists only `PUBLISHED` events, and Booking provisions its inventory from `EventPublished`.

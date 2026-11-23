@@ -25,6 +25,8 @@ docker compose --profile core up -d   # PostgreSQL :5432, RabbitMQ :5672, Redis 
 cd frontend && npm ci && npm run dev  # React SPA on localhost:5173
 cd frontend && npm test               # Vitest + Testing Library
 cd frontend && npm run build          # tsc -b + Vite production build
+./scripts/dev-up.sh                   # all services + SPA in the background (logs in build/dev/)
+./scripts/dev-down.sh                 # stop them (--infra also stops the containers)
 ```
 
 - There is no system Gradle: always use `./gradlew` (wrapper 9.9.2).
