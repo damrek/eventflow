@@ -24,5 +24,8 @@ project(":booking").projectDir = file("services/booking")
 include("notification")
 project(":notification").projectDir = file("services/notification")
 
+include("payment")
+project(":payment").projectDir = file("services/payment")
+
 include("payment-simulator")
 project(":payment-simulator").projectDir = file("services/payment-simulator")

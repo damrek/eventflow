@@ -1,9 +1,13 @@
 [versions]
 spring-boot = "4.2.0"
 springdoc = "3.2.1"
+# Latest on Maven Central (verified against repo1.maven.org metadata); it only needs
+# resilience4j-core and slf4j-api, so no Spring Boot integration module is involved.
+resilience4j = "2.4.0"
 
 [plugins]
 spring-boot = { id = "org.springframework.boot", version.ref = "spring-boot" }
 
 [libraries]
 springdoc-openapi-webmvc-ui = { module = "org.springdoc:springdoc-openapi-starter-webmvc-ui", version.ref = "springdoc" }
+resilience4j-circuitbreaker = { module = "io.github.resilience4j:resilience4j-circuitbreaker", version.ref = "resilience4j" }
