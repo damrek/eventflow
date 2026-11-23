@@ -38,27 +38,66 @@ Gradle is not required: use the wrapper.
 
 ## Quick start
 
+Infrastructure first; this command returns when the containers are up:
+
 ```bash
 cp .env.example .env
 docker compose --profile core up -d  # PostgreSQL :5432, RabbitMQ :5672 (UI :15672), Redis :6379
-./gradlew :catalog:bootRun           # Catalog API on localhost:8081
-./gradlew :booking:bootRun           # Booking API on localhost:8082
-./gradlew :notification:bootRun      # Notification API on localhost:8083
-./gradlew :payment-simulator:bootRun # Simulated payment provider on localhost:8085
-./gradlew :payment:bootRun           # Payment service on localhost:8084 (internal, no REST API)
-
-cd frontend && npm ci && npm run dev # SPA on http://localhost:5173
 ```
+
+Every service command below is a **long-running foreground process**: run each one in its own
+terminal and leave it running. `./gradlew :catalog:bootRun` prints the Spring banner and then stays
+at Gradle's `80% EXECUTING` progress bar — that is the task serving requests, not a hang, and the
+command does not return until you press `Ctrl+C`. The SPA is also a foreground process.
+
+| Terminal | Command | Serves |
+| -------- | ------- | ------ |
+| 1 | `./gradlew :catalog:bootRun` | Catalog API on `:8081` |
+| 2 | `./gradlew :booking:bootRun` | Booking API on `:8082` |
+| 3 | `./gradlew :notification:bootRun` | Notification API on `:8083` |
+| 4 | `./gradlew :payment-simulator:bootRun` | Simulated provider on `:8085` |
+| 5 | `./gradlew :payment:bootRun` | Payment service on `:8084` (internal, no REST API) |
+| 6 | `cd frontend && npm ci && npm run dev` | SPA on `http://localhost:5173` |
+
+From any other terminal, confirm the backend is up (the simulator has no actuator; it is exercised
+through payments):
+
+```bash
+for port in 8081 8082 8083 8084; do curl -fsS "localhost:$port/actuator/health"; echo; done
+```
+
+### Seed a demo event
+
+The SPA lists only `PUBLISHED` events, and Booking provisions its inventory from `EventPublished`.
+With the services running:
+
+```bash
+VENUE=$(curl -sS -X POST localhost:8081/api/venues -H 'Content-Type: application/json' \
+  -d '{"name":"Arena Sur","address":"Calle 1, Madrid","capacity":5000}' | jq -r .id)
+EVENT=$(curl -sS -X POST localhost:8081/api/events -H 'Content-Type: application/json' \
+  -d "{\"name\":\"Java Meetup 2026\",\"venueId\":\"$VENUE\",\"startsAt\":\"2026-12-01T19:00:00Z\",\"ticketTypes\":[{\"name\":\"General\",\"price\":25.00,\"capacity\":400},{\"name\":\"VIP\",\"price\":60.00,\"capacity\":50}]}" \
+  | jq -r .id)
+curl -sS -X POST localhost:8081/api/events/$EVENT/publish
+curl -sS localhost:8082/api/events/$EVENT/availability   # after the event reaches Booking
+```
+
+`jq` only extracts the ids; copy them from the JSON response if you prefer.
 
 The SPA talks to its own origin: Vite proxies `/api/catalog` → `:8081`, `/api/booking` → `:8082`
 and `/api/notification` → `:8083` in both `dev` and `preview`, so no CORS configuration is needed
 (ADR 0012). `npm run build` produces the static bundle in `frontend/dist`.
 
 One PostgreSQL instance hosts one database per service (`catalog_db`, `booking_db`,
-`notification_db`, `payment_db`). Those databases are created by
-`docker/postgres/init/01-create-databases.sh` when the volume is first initialised; if you already
-had a volume from an earlier phase, run `docker compose down -v` once (or `createdb` the missing
-ones) before starting the services.
+`notification_db`, `payment_db`). A fresh volume gets all four from
+`docker/postgres/init/01-create-databases.sh`. An existing volume from an earlier phase may lack
+the newest ones (Notification or Payment then fails at startup with
+`database "notification_db" does not exist`); create the missing databases without touching data:
+
+```bash
+docker compose exec -T postgres sh /docker-entrypoint-initdb.d/01-create-databases.sh
+```
+
+The script is idempotent: it only creates what is absent.
 
 - Swagger UI: `http://localhost:8081/swagger-ui.html`, `:8082`, `:8083`
 - OpenAPI JSON: `http://localhost:8081/v3/api-docs`, `:8082`, `:8083`

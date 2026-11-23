@@ -28,6 +28,8 @@ cd frontend && npm run build          # tsc -b + Vite production build
 ```
 
 - There is no system Gradle: always use `./gradlew` (wrapper 9.9.2).
+- `bootRun` and `npm run dev` are long-running foreground processes that never return: run each in
+  its own terminal (or background it) and do not read Gradle's `80% EXECUTING` progress as a hang.
 - This machine has no `java` on `PATH`. Export `JAVA_HOME` to a JDK 21 before running Gradle;
   the local one is `~/.jdks/graalvm-ce-21.0.2`.
 - The frontend needs Node 22+ and npm 11. `~/.npmrc` enforces `min-release-age=3` (and
@@ -147,8 +149,10 @@ cd frontend && npm run build          # tsc -b + Vite production build
 - Flyway is the only schema source. Add `V<n>__description.sql`; never edit an applied
   migration. One PostgreSQL instance, one database per service (`catalog_db`, `booking_db`,
   `notification_db`, `payment_db`); never query another service's database.
-  `docker/postgres/init/01-create-databases.sh` creates the extra databases on a fresh volume; an
-  existing volume needs `docker compose down -v` or `createdb`.
+  `docker/postgres/init/01-create-databases.sh` creates the extra databases on a fresh volume; it is
+  idempotent, so an existing volume recovers with
+  `docker compose exec -T postgres sh /docker-entrypoint-initdb.d/01-create-databases.sh`
+  (no `down -v` needed).
 - Every producer has `outbox_event`; every consumer has `processed_message` (plus `notification`,
   whose `event_id` is also unique). Those tables are owned by the service that migrates them.
 - Payment owns `payment` (one row per reservation, unique `reservation_id`) and `payment_attempt`
