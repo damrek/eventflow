@@ -93,13 +93,16 @@ room and Redis (Phase 5 UI), outbox and `EventPublished` consumption (Phase 3).
   ships only `HELD -> CANCELLED` and `HELD -> EXPIRED`; the database `CHECK` and the enum widen in
   Phase 4 with a migration. `event_inventory` has no `version` column (ADR 0006 explains why).
 - **L6 (verification evidence, real runs):**
-  - `./gradlew :booking:test` — 40 tests, 0 failures: `BookingApiIntegrationTest` 16,
-    `ReservationConcurrencyTest` 2, `ReservationExpiryTest` 4, `InventoryDomainTest` 5,
-    `ReservationDomainTest` 13.
+  - `./gradlew :booking:test` — 42 tests, 0 failures: `InventoryApiIntegrationTest` 6,
+    `ReservationApiIntegrationTest` 12, `ReservationConcurrencyTest` 2,
+    `ReservationExpiryTest` 4, `InventoryDomainTest` 5, `ReservationDomainTest` 13.
   - Concurrency gate: 100 capacity, 200 simultaneous requests → exactly 100 `201`, 100 `422`,
     `available=0 held=100 sold=0`, 100 reservations.
   - Idempotency under contention: 20 simultaneous requests with one key → 1 reservation,
     `held=1`.
+  - Atomicity: a two-item request whose second line has no stock returns `422` and leaves
+    neither line held; a failed creation does not burn its `Idempotency-Key`, so the same key
+    succeeds on the retry.
   - `./gradlew build` — BUILD SUCCESSFUL (catalog untouched, its 34 tests still up to date).
   - Smoke test with the built jar against Compose PostgreSQL 18 (TTL `PT5S`): health UP,
     provisioning `201` and identical replay `200`, availability, reservation `201` (50.00),
