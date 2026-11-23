@@ -91,6 +91,43 @@ class ReservationApiIntegrationTest {
     }
 
     @Test
+    void rollsBackEveryHoldWhenOneItemHasNoStock() throws Exception {
+        provision();
+
+        mockMvc.perform(post("/api/reservations")
+                        .header("X-User-Id", ApiFixtures.USER)
+                        .header("Idempotency-Key", "order-1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(ApiFixtures.reservationTwoTypes(
+                                eventId.toString(), general.toString(), 1, vip.toString(), 51)))
+                .andExpect(status().isUnprocessableContent())
+                .andExpect(jsonPath("$.code").value("INSUFFICIENT_TICKETS"));
+
+        MvcResult availability = mockMvc.perform(get("/api/events/{eventId}/availability", eventId))
+                .andReturn();
+        assertThat(availabilityOf(availability, general, "held")).isZero();
+        assertThat(availabilityOf(availability, vip, "held")).isZero();
+    }
+
+    @Test
+    void failedCreationDoesNotBurnTheIdempotencyKey() throws Exception {
+        provision();
+
+        mockMvc.perform(post("/api/reservations")
+                        .header("X-User-Id", ApiFixtures.USER)
+                        .header("Idempotency-Key", "order-1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(ApiFixtures.reservation(eventId.toString(), general.toString(), 401)))
+                .andExpect(status().isUnprocessableContent());
+
+        createReservation("order-1", general, 1);
+
+        MvcResult availability = mockMvc.perform(get("/api/events/{eventId}/availability", eventId))
+                .andReturn();
+        assertThat(availabilityOf(availability, general, "held")).isEqualTo(1);
+    }
+
+    @Test
     void requiresUserAndIdempotencyKey() throws Exception {
         provision();
 
