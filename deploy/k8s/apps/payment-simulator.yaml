@@ -1,0 +1,74 @@
+# The provider double: one controller and the amount rules, no database and no events. It exists
+# only so the Payment service has a real HTTP dependency to call (APPROVED, REJECTED, 503, timeout).
+apiVersion: v1
+kind: Service
+metadata:
+  name: payment-simulator
+  labels:
+    app: payment-simulator
+spec:
+  selector:
+    app: payment-simulator
+  ports:
+    - name: http
+      port: 8085
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment-simulator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: payment-simulator
+  template:
+    metadata:
+      labels:
+        app: payment-simulator
+    spec:
+      # Kubernetes service links would inject <SERVICE>_PORT=tcp://host:port for every
+      # Service in the namespace, which collides with the *_PORT variables these images read.
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: payment-simulator
+          image: eventflow/payment-simulator:local
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8085
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 50m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          startupProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            failureThreshold: 30
+            periodSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            periodSeconds: 20
+            failureThreshold: 3

@@ -1,0 +1,115 @@
+# PostgreSQL runs inside the cluster so the deployment is self-contained: one instance, one
+# database per service, exactly as in Compose. The init script only runs on a fresh volume and is
+# idempotent on an existing one (same file as docker/postgres/init).
+#
+# PostgreSQL 18 images keep the cluster under /var/lib/postgresql/<major>/docker, so the volume is
+# mounted at /var/lib/postgresql and never at .../data.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-init
+data:
+  01-create-databases.sh: |
+    #!/bin/sh
+    set -e
+    for database in catalog_db booking_db notification_db payment_db; do
+        exists=$(psql -tAc "SELECT 1 FROM pg_database WHERE datname = '$database'" \
+            --username "$POSTGRES_USER" --dbname "$POSTGRES_DB")
+        if [ "$exists" != "1" ]; then
+            psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" \
+                -c "CREATE DATABASE $database"
+        fi
+    done
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  labels:
+    app: postgres
+spec:
+  selector:
+    app: postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      # Kubernetes service links would inject <SERVICE>_PORT=tcp://host:port for every
+      # Service in the namespace, which collides with the *_PORT variables these images read.
+      enableServiceLinks: false
+      securityContext:
+        fsGroup: 999
+      containers:
+        - name: postgres
+          image: postgres:18-alpine
+          ports:
+            - name: postgres
+              containerPort: 5432
+          env:
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: eventflow-secrets
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: eventflow-secrets
+                  key: POSTGRES_PASSWORD
+            - name: POSTGRES_DB
+              value: catalog_db
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql
+            - name: init
+              mountPath: /docker-entrypoint-initdb.d
+              readOnly: true
+          startupProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -U \"$POSTGRES_USER\" -d catalog_db"]
+            failureThreshold: 30
+            periodSeconds: 5
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -U \"$POSTGRES_USER\" -d catalog_db"]
+            periodSeconds: 10
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -U \"$POSTGRES_USER\" -d catalog_db"]
+            periodSeconds: 20
+            failureThreshold: 4
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+      volumes:
+        - name: init
+          configMap:
+            name: postgres-init
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 2Gi

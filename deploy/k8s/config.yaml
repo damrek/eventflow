@@ -1,0 +1,39 @@
+# Non-secret configuration shared by the services. The credentials live in the `eventflow-secrets`
+# Secret, created from .env by scripts/k3d-up.sh.
+#
+# The hostnames are the Service names in this namespace, which is why the same images work in
+# Compose and in the cluster with only the environment changing.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: eventflow-config
+data:
+  # PostgreSQL: one instance, one database per service.
+  CATALOG_DB_URL: jdbc:postgresql://postgres:5432/catalog_db
+  BOOKING_DB_URL: jdbc:postgresql://postgres:5432/booking_db
+  NOTIFICATION_DB_URL: jdbc:postgresql://postgres:5432/notification_db
+  PAYMENT_DB_URL: jdbc:postgresql://postgres:5432/payment_db
+
+  # RabbitMQ and the shared topology names (ADR 0009).
+  RABBITMQ_HOST: rabbitmq
+  RABBITMQ_PORT: "5672"
+  EVENTFLOW_EXCHANGE: eventflow.events
+  EVENTFLOW_DLX: eventflow.events.dlx
+  EVENTFLOW_RETRY_DELAYS: 5s,15s,45s
+  EVENTFLOW_OUTBOX_INTERVAL: PT1S
+
+  # Redis is a throttle only (ADR 0011); both replicas share it.
+  REDIS_HOST: redis
+  REDIS_PORT: "6379"
+
+  # The provider double is a Service in the same namespace.
+  PAYMENT_PROVIDER_URL: http://payment-simulator:8085/simulator/authorizations
+  PAYMENT_PROVIDER_CONNECT_TIMEOUT: 2s
+  PAYMENT_PROVIDER_READ_TIMEOUT: 2s
+
+  # Waiting room and expiry knobs, identical to the single-node defaults.
+  BOOKING_RESERVATION_TTL: PT10M
+  BOOKING_EXPIRY_INTERVAL: PT5S
+  BOOKING_WAITING_ROOM_DISPATCH_INTERVAL: PT2S
+  BOOKING_WAITING_ROOM_BATCH_SIZE: "25"
+  BOOKING_WAITING_ROOM_ADMISSION_TTL: PT2M
