@@ -5,6 +5,6 @@
 # here, or `docker compose down -v` for an existing local volume.
 set -e
 
-for database in booking_db; do
+for database in booking_db notification_db; do
     psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" -c "CREATE DATABASE $database"
 done
