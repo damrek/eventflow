@@ -16,8 +16,9 @@ public class OpenApiConfig {
                         .title("EventFlow Booking API")
                         .version("1.0.0")
                         .description("""
-                                Inventory availability, reservations and expiration.
-                                Reservation creation requires `X-User-Id` and `Idempotency-Key`.
+                                Inventory availability, reservations, expiration and the Redis waiting room.
+                                Reservation creation requires `X-User-Id` and `Idempotency-Key`, plus
+                                `X-Admission-Token` while the event's waiting room has a queue.
                                 Errors follow RFC 9457 (application/problem+json) and include a stable
                                 `code` plus the request `traceId`."""));
     }

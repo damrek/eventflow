@@ -15,6 +15,9 @@ import org.springframework.web.bind.annotation.RestController;
 import com.eventflow.booking.reservation.dto.CreateReservationRequest;
 import com.eventflow.booking.reservation.dto.ReservationResponse;
 import com.eventflow.booking.shared.web.CurrentUserProvider;
+import com.eventflow.booking.shared.web.rate.FixedWindowRateLimiter;
+import com.eventflow.booking.shared.web.rate.RateLimitEndpoint;
+import com.eventflow.booking.waitingroom.WaitingRoomService;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -27,13 +30,19 @@ public class ReservationController {
 
     private final ReservationService reservations;
     private final CurrentUserProvider currentUser;
+    private final FixedWindowRateLimiter rateLimiter;
+    private final WaitingRoomService waitingRoom;
 
     @PostMapping
     public ResponseEntity<ReservationResponse> create(
             @Valid @RequestBody CreateReservationRequest request,
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKeyHeader,
+            @RequestHeader(value = "X-Admission-Token", required = false) String admissionToken,
             HttpServletRequest httpRequest) {
         String userId = currentUser.userId(httpRequest);
+        rateLimiter.check(RateLimitEndpoint.RESERVATION_CREATE, userId);
+        // The gate only applies while this event has a queue; PostgreSQL still decides the hold.
+        waitingRoom.requireAdmission(request.eventId(), userId, admissionToken);
         ReservationResult result = reservations.create(
                 userId, new IdempotencyKey(idempotencyKeyHeader), request.eventId(), request.toSelections());
         return ResponseEntity.status(result.status()).body(result.body());

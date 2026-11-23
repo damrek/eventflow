@@ -38,6 +38,16 @@ spring:
           max-retries: 0
           stateless: true
 
+  # The waiting room, admission tokens and rate limiting (ADR 0011). Redis is a throttle:
+  # PostgreSQL still decides which units can be held, and a Redis outage only degrades the
+  # queue. Short timeouts keep a dead Redis from stalling the reservation path.
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      connect-timeout: 2s
+      timeout: 2s
+
 server:
   port: ${BOOKING_PORT:8082}
 
@@ -60,6 +70,16 @@ booking:
   expiry:
     interval: ${BOOKING_EXPIRY_INTERVAL:PT5S}
     batch-size: ${BOOKING_EXPIRY_BATCH_SIZE:50}
+  waiting-room:
+    # How often the dispatcher admits a batch per event and how long a token stays valid.
+    dispatch-interval: ${BOOKING_WAITING_ROOM_DISPATCH_INTERVAL:PT2S}
+    batch-size: ${BOOKING_WAITING_ROOM_BATCH_SIZE:25}
+    admission-ttl: ${BOOKING_WAITING_ROOM_ADMISSION_TTL:PT2M}
+  rate-limit:
+    # Fixed window shared by every Booking replica through Redis.
+    window: ${BOOKING_RATE_LIMIT_WINDOW:PT1M}
+    join-max: ${BOOKING_RATE_LIMIT_JOIN_MAX:60}
+    reservation-max: ${BOOKING_RATE_LIMIT_RESERVATION_MAX:300}
 
 management:
   endpoints:

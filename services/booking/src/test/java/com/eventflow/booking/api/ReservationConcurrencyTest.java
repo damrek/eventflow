@@ -36,6 +36,9 @@ import com.eventflow.booking.inventory.InventoryService;
         "eventflow.messaging.retry.delays=200ms,200ms,200ms",
         "spring.rabbitmq.connection-timeout=2s",
         "booking.expiry.interval=PT1H",
+        // This gate is about inventory atomicity: the per-user throttle would reject the burst
+        // before it ever reached the conditional UPDATE.
+        "booking.rate-limit.reservation-max=10000",
         "spring.datasource.hikari.maximum-pool-size=20"
 })
 @AutoConfigureMockMvc
