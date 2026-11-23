@@ -1,0 +1,15 @@
+spring:
+  application:
+    name: payment-simulator-service
+
+server:
+  port: ${PAYMENT_SIMULATOR_PORT:8085}
+
+# How long the ".99" scenario waits before answering, so a caller whose read timeout is shorter
+# observes a real timeout.
+simulator:
+  timeout-delay: ${PAYMENT_SIMULATOR_TIMEOUT_DELAY:PT5S}
+
+logging:
+  pattern:
+    level: "%5p [traceId=%X{traceId:-none}]"
