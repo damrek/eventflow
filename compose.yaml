@@ -58,6 +58,188 @@ services:
       retries: 20
     restart: unless-stopped
 
+  # ---------------------------------------------------------------------------------------------
+  # Profile "app": the built images. Every service reads its port and datasource from the
+  # environment, so only the URLs change with respect to `bootRun` on the host.
+  #
+  # The "core" profile still owns PostgreSQL, RabbitMQ and Redis, so both profiles start together:
+  #   docker compose --profile core --profile app up -d --build
+  #
+  # Only the front door publishes a port; the five services stay on the Compose network, which is
+  # what makes the SPA's single-origin contract (/api/catalog, /api/booking, /api/notification) true
+  # in the container stack and not only under `npm run dev`.
+  # ---------------------------------------------------------------------------------------------
+  catalog:
+    profiles: ["app"]
+    build:
+      context: .
+      dockerfile: docker/service.Dockerfile
+      target: runtime
+      args:
+        SERVICE: catalog
+    image: eventflow/catalog:${EVENTFLOW_TAG:-local}
+    environment:
+      CATALOG_DB_URL: jdbc:postgresql://postgres:5432/${CATALOG_DB:-catalog_db}
+      CATALOG_DB_USER: ${POSTGRES_USER:-eventflow}
+      CATALOG_DB_PASSWORD: ${POSTGRES_PASSWORD:-eventflow}
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: ${RABBITMQ_USER:-eventflow}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-eventflow}
+      EVENTFLOW_EXCHANGE: ${EVENTFLOW_EXCHANGE:-eventflow.events}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8081/actuator/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 40s
+    restart: unless-stopped
+
+  booking:
+    profiles: ["app"]
+    build:
+      context: .
+      dockerfile: docker/service.Dockerfile
+      target: runtime
+      args:
+        SERVICE: booking
+    image: eventflow/booking:${EVENTFLOW_TAG:-local}
+    environment:
+      BOOKING_DB_URL: jdbc:postgresql://postgres:5432/${BOOKING_DB:-booking_db}
+      BOOKING_DB_USER: ${POSTGRES_USER:-eventflow}
+      BOOKING_DB_PASSWORD: ${POSTGRES_PASSWORD:-eventflow}
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: ${RABBITMQ_USER:-eventflow}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-eventflow}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8082/actuator/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 40s
+    restart: unless-stopped
+
+  notification:
+    profiles: ["app"]
+    build:
+      context: .
+      dockerfile: docker/service.Dockerfile
+      target: runtime
+      args:
+        SERVICE: notification
+    image: eventflow/notification:${EVENTFLOW_TAG:-local}
+    environment:
+      NOTIFICATION_DB_URL: jdbc:postgresql://postgres:5432/${NOTIFICATION_DB:-notification_db}
+      NOTIFICATION_DB_USER: ${POSTGRES_USER:-eventflow}
+      NOTIFICATION_DB_PASSWORD: ${POSTGRES_PASSWORD:-eventflow}
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: ${RABBITMQ_USER:-eventflow}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-eventflow}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8083/actuator/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 40s
+    restart: unless-stopped
+
+  payment:
+    profiles: ["app"]
+    build:
+      context: .
+      dockerfile: docker/service.Dockerfile
+      target: runtime
+      args:
+        SERVICE: payment
+    image: eventflow/payment:${EVENTFLOW_TAG:-local}
+    environment:
+      PAYMENT_DB_URL: jdbc:postgresql://postgres:5432/${PAYMENT_DB:-payment_db}
+      PAYMENT_DB_USER: ${POSTGRES_USER:-eventflow}
+      PAYMENT_DB_PASSWORD: ${POSTGRES_PASSWORD:-eventflow}
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: ${RABBITMQ_USER:-eventflow}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-eventflow}
+      # Inside the network the provider is the simulator service, never localhost.
+      PAYMENT_PROVIDER_URL: http://payment-simulator:8085/simulator/authorizations
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      payment-simulator:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8084/actuator/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 40s
+    restart: unless-stopped
+
+  payment-simulator:
+    profiles: ["app"]
+    build:
+      context: .
+      dockerfile: docker/service.Dockerfile
+      target: runtime
+      args:
+        SERVICE: payment-simulator
+    image: eventflow/payment-simulator:${EVENTFLOW_TAG:-local}
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8085/actuator/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 30s
+    restart: unless-stopped
+
+  frontend:
+    profiles: ["app"]
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: runtime-proxy
+    image: eventflow/frontend:${EVENTFLOW_TAG:-local}
+    environment:
+      # The nginx entrypoint renders these into the proxy configuration. The defaults in the image
+      # already match the service names below, and they are repeated here as documentation.
+      CATALOG_UPSTREAM: catalog:8081
+      BOOKING_UPSTREAM: booking:8082
+      NOTIFICATION_UPSTREAM: notification:8083
+    ports:
+      - "${APP_PORT:-8080}:80"
+    depends_on:
+      catalog:
+        condition: service_healthy
+      booking:
+        condition: service_healthy
+      notification:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
 volumes:
   postgres-data:
   rabbitmq-data:
