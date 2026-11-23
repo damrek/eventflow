@@ -23,6 +23,12 @@ import org.springframework.amqp.core.TopicExchange;
  */
 public final class RetryTopology {
 
+    /**
+     * Header the recoverer writes before republishing: how many retries this delivery already
+     * spent. It survives the retry queue and a broker restart, so replicas agree on the attempt.
+     */
+    public static final String ATTEMPT_HEADER = "x-eventflow-retry-attempt";
+
     private RetryTopology() {
     }
 
