@@ -64,7 +64,14 @@ public class FixedWindowRateLimiter {
     }
 
     private long retryAfterSeconds(String key) {
-        Long ttl = redis.getExpire(key, TimeUnit.MILLISECONDS);
+        Long ttl;
+        try {
+            ttl = redis.getExpire(key, TimeUnit.MILLISECONDS);
+        } catch (DataAccessException unavailable) {
+            // The limit was already exceeded; a Redis death between the increment and the TTL
+            // read must not turn an honest answer into a 500.
+            return 1;
+        }
         if (ttl == null || ttl < 0) {
             return 1;
         }
