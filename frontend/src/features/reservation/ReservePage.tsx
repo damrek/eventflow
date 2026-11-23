@@ -144,7 +144,7 @@ export function ReservePage() {
           <ErrorState
             error={holdError}
             title="The reservation could not be created"
-            onRetry={holdError.code === "NOT_ADMITTED" ? undefined : hold.retry}
+            onRetry={holdError.code === "NOT_ADMITTED" ? undefined : hold.retrySameKey}
           />
           {holdError.code === "NOT_ADMITTED" ? (
             <p>

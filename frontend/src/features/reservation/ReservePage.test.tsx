@@ -219,6 +219,54 @@ describe("reserve page", () => {
     expect(screen.getByRole("button", { name: "Reserve again" })).toBeInTheDocument();
   }, 20_000);
 
+  it("replays a creation error with the same idempotency key", async () => {
+    let createCalls = 0;
+
+    const backend = installFakeBackend([
+      { method: "GET", path: `/api/booking/waiting-room/${EVENT_ID}/status`, handler: admitted },
+      { method: "GET", path: `/api/catalog/events/${EVENT_ID}`, handler: () => ({ body: eventDetail }) },
+      {
+        method: "POST",
+        path: "/api/booking/reservations",
+        handler: () => {
+          createCalls += 1;
+          if (createCalls === 1) {
+            return {
+              status: 503,
+              body: {
+                status: 503,
+                code: "SERVICE_UNAVAILABLE",
+                detail: "The booking service is temporarily unavailable",
+                traceId: "trace-create",
+              },
+            };
+          }
+          return { status: 201, body: reservationBody("res-1", "HELD") };
+        },
+      },
+      {
+        method: "GET",
+        path: /^\/api\/booking\/reservations\/res-\d+$/,
+        handler: () => ({ body: reservationBody("res-1", "HELD") }),
+      },
+    ]);
+
+    renderReserve();
+
+    expect(await screen.findByText("The reservation could not be created")).toBeInTheDocument();
+    expect(screen.getByText("The booking service is temporarily unavailable")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Try again" }));
+
+    expect(await screen.findByText("€100.00")).toBeInTheDocument();
+    const keys = backend
+      .callsTo("POST", "/api/booking/reservations")
+      .map((call) => call.headers["Idempotency-Key"]);
+    expect(keys).toHaveLength(2);
+    expect(keys[0]).toBeTruthy();
+    expect(keys[1]).toBe(keys[0]);
+  }, 20_000);
+
   it("returns to the waiting room when the user is not admitted", async () => {
     const backend = installFakeBackend([
       {

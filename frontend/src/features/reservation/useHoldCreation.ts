@@ -69,9 +69,16 @@ export function useHoldCreation({
   }, [enabled, generation, eventId, userId, itemsKey, admissionToken, items, queryClient]);
 
   const retry = useCallback(() => {
+    // After a terminal state the previous reservation must not be reused.
     idempotencyKey.current = randomUuid();
     setGeneration((value) => value + 1);
   }, []);
 
-  return { state, retry };
+  const retrySameKey = useCallback(() => {
+    // A creation error may have hidden a successful request; replaying with the same key is the
+    // idempotent path and cannot hold twice.
+    setGeneration((value) => value + 1);
+  }, []);
+
+  return { state, retry, retrySameKey };
 }

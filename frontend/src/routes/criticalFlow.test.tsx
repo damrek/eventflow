@@ -154,6 +154,8 @@ describe("critical flow", () => {
       (call) => call.path.includes("/waiting-room/") || call.path.includes("/reservations"),
     );
     expect(userScopedCalls.length).toBeGreaterThan(2);
+    // The confirmation was read from the backend after checkout, never decided by the client.
+    expect(reservationGets).toBeGreaterThan(0);
     expect(
       userScopedCalls.every((call) => String(call.headers["X-User-Id"] ?? "").startsWith("web-")),
     ).toBe(true);
