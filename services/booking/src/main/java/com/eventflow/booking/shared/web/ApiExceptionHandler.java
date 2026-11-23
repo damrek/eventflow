@@ -9,8 +9,10 @@ import java.util.Optional;
 import org.springframework.context.MessageSourceResolvable;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.OptimisticLockingFailureException;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
+import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -23,7 +25,10 @@ import org.springframework.web.servlet.resource.NoResourceFoundException;
 import com.eventflow.booking.shared.domain.BusinessRuleException;
 import com.eventflow.booking.shared.domain.EntityNotFoundException;
 import com.eventflow.booking.shared.domain.InvalidRequestException;
+import com.eventflow.booking.shared.domain.RateLimitedException;
 import com.eventflow.booking.shared.domain.StateConflictException;
+import com.eventflow.booking.waitingroom.NotAdmittedException;
+import com.eventflow.booking.waitingroom.WaitingRoomUnavailableException;
 
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
@@ -55,6 +60,29 @@ public class ApiExceptionHandler {
     @ExceptionHandler(InvalidRequestException.class)
     public ProblemDetail handleInvalidRequest(InvalidRequestException exception, HttpServletRequest request) {
         return problem(HttpStatus.BAD_REQUEST, exception.code(), exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(NotAdmittedException.class)
+    public ProblemDetail handleNotAdmitted(NotAdmittedException exception, HttpServletRequest request) {
+        return problem(HttpStatus.FORBIDDEN, exception.code(), exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(WaitingRoomUnavailableException.class)
+    public ProblemDetail handleWaitingRoomUnavailable(
+            WaitingRoomUnavailableException exception, HttpServletRequest request) {
+        log.warn("Waiting room unavailable [traceId={}]", TraceId.current(), exception.getCause());
+        return problem(HttpStatus.SERVICE_UNAVAILABLE, exception.code(), exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(RateLimitedException.class)
+    public ResponseEntity<ProblemDetail> handleRateLimited(
+            RateLimitedException exception, HttpServletRequest request) {
+        ProblemDetail problem =
+                problem(HttpStatus.TOO_MANY_REQUESTS, exception.code(), exception.getMessage(), request);
+        problem.setProperty("retryAfterSeconds", exception.retryAfterSeconds());
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header(HttpHeaders.RETRY_AFTER, Long.toString(exception.retryAfterSeconds()))
+                .body(problem);
     }
 
     /**

@@ -14,10 +14,18 @@ Todas las APIs bajo `/api`. Documentar cada servicio con OpenAPI/Swagger.
 - `GET /api/events/{eventId}/availability`
 - `POST /api/waiting-room/{eventId}/join`
 - `GET /api/waiting-room/{eventId}/status`
-- `POST /api/reservations` — requiere `Idempotency-Key`.
+- `POST /api/reservations` — requiere `Idempotency-Key` y, mientras la sala de espera del evento
+  tenga cola, `X-Admission-Token`.
 - `GET /api/reservations/{reservationId}`
 - `POST /api/reservations/{reservationId}/checkout`
 - `POST /api/reservations/{reservationId}/cancel`
+
+La sala de espera (Fase 5, ADR 0011) devuelve `{eventId, userId, status, position, waitingCount,
+token, expiresAt}` con `status` `NOT_JOINED | WAITING | ADMITTED`. Un token ausente, caducado o de
+otro usuario responde `403 NOT_ADMITTED` mientras la cola exista; sin cola la puerta está abierta y
+la creación de reserva sigue igual. El rate limit responde `429` con `Retry-After` y código
+`RATE_LIMITED`; una caída de Redis responde `503 WAITING_ROOM_UNAVAILABLE` al unirse o consultar,
+pero no bloquea una reserva (ADR 0011).
 
 **Payment**: interno, no expuesto al frontend; consume `PaymentRequested` y `PaymentRefundRequested`
 y publica `PaymentAuthorized` o `PaymentRejected`. **Notification**: `GET /api/notifications?userId=&page=`.

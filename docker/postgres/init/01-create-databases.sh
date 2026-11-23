@@ -1,10 +1,18 @@
 #!/bin/sh
-# Runs only when the PostgreSQL volume is initialised (a brand-new cluster). The service
-# specification keeps one instance with one database per service; POSTGRES_DB creates the
-# first one, this script creates the rest. Adding a service later means adding its database
-# here, or `docker compose down -v` for an existing local volume.
+# Creates one database per service on a brand-new cluster. PostgreSQL runs this only while the
+# volume is initialised, so it is written to be safe to re-run on an existing volume:
+#
+#   docker compose exec -T postgres sh /docker-entrypoint-initdb.d/01-create-databases.sh
+#
+# That is the recovery path when a service added later (Notification, Payment) finds its database
+# missing. It never drops or rewrites data; `docker compose down -v` is not required.
 set -e
 
-for database in booking_db notification_db payment_db; do
-    psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" -c "CREATE DATABASE $database"
+for database in catalog_db booking_db notification_db payment_db; do
+    exists=$(psql -tAc "SELECT 1 FROM pg_database WHERE datname = '$database'" \
+        --username "$POSTGRES_USER" --dbname "$POSTGRES_DB")
+    if [ "$exists" != "1" ]; then
+        psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" \
+            -c "CREATE DATABASE $database"
+    fi
 done

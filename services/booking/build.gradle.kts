@@ -19,6 +19,8 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-validation")
     implementation("org.springframework.boot:spring-boot-starter-actuator")
     implementation("org.springframework.boot:spring-boot-starter-rabbitmq")
+    // Redis is the waiting room, admission tokens and distributed rate limiting (ADR 0011).
+    implementation("org.springframework.boot:spring-boot-starter-data-redis")
     implementation("org.flywaydb:flyway-database-postgresql")
     implementation(libs.springdoc.openapi.webmvc.ui)
 
