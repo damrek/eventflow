@@ -14,16 +14,9 @@ import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
-import org.springframework.test.context.jdbc.Sql;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import com.jayway.jsonpath.JsonPath;
 
@@ -31,19 +24,11 @@ import com.jayway.jsonpath.JsonPath;
  * End-to-end HTTP contract against a real PostgreSQL container. Flyway migrations create the
  * schema, so every test also proves that migrations and JPA mappings agree.
  */
-@SpringBootTest
-@AutoConfigureMockMvc
-@Testcontainers
-@Sql(scripts = "/db/cleanup.sql", executionPhase = Sql.ExecutionPhase.BEFORE_TEST_METHOD)
-class CatalogApiIntegrationTest {
+class CatalogApiIntegrationTest extends CatalogIntegrationTest {
 
     private static final String GENERAL_TICKETS = """
             [{"name":"General","price":25.00,"capacity":400},
              {"name":"VIP","price":60.00,"capacity":50}]""";
-
-    @Container
-    @ServiceConnection
-    static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:18-alpine");
 
     @Autowired
     private MockMvc mockMvc;

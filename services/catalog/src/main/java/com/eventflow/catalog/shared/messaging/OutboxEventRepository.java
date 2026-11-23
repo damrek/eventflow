@@ -1,0 +1,24 @@
+package com.eventflow.catalog.shared.messaging;
+
+import java.util.List;
+import java.util.UUID;
+
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+
+public interface OutboxEventRepository extends JpaRepository<OutboxEvent, UUID> {
+
+    /**
+     * Claims the oldest unpublished rows for this relay only. {@code SKIP LOCKED} lets a second
+     * replica drain its own batch instead of blocking on rows already being published.
+     */
+    @Query(value = """
+            select * from outbox_event
+            where published_at is null
+            order by occurred_at
+            limit :limit
+            for update skip locked
+            """, nativeQuery = true)
+    List<OutboxEvent> lockUnpublished(@Param("limit") int limit);
+}

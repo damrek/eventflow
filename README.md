@@ -5,7 +5,8 @@ reservations, a waiting room and a simulated payment provider. The goal is not f
 count: it is a small system where every concurrency, idempotency and failure-handling
 claim is provable with tests.
 
-**Current status: Phase 0 (bootstrap), Phase 1 (Catalog) and Phase 2 (Booking) complete.**
+**Current status: Phase 0 (bootstrap), Phase 1 (Catalog), Phase 2 (Booking) and Phase 3 (Events)
+complete.**
 
 ## Stack
 
@@ -19,8 +20,9 @@ before being added (see `docs/adr/0001-version-stack.md`).
 | Boilerplate  | Lombok 1.18.48 (build-time only, policy in ADR 0004) |
 | Database     | PostgreSQL 18, Flyway 12.11.0 (managed by Boot)     |
 | API docs     | springdoc-openapi 3.2.1 (Swagger UI)                |
+| Messaging    | RabbitMQ 4.2, Spring AMQP 4.2 (AMQP 0.9.1), Outbox/Inbox |
 | Tests        | JUnit 6, AssertJ, Testcontainers 2.0.5              |
-| Local infra  | Docker Compose (PostgreSQL, profile `core`)         |
+| Local infra  | Docker Compose (PostgreSQL + RabbitMQ, profile `core`) |
 
 ## Prerequisites
 
@@ -34,30 +36,35 @@ Gradle is not required: use the wrapper.
 
 ```bash
 cp .env.example .env
-docker compose --profile core up -d          # PostgreSQL on localhost:5432
-./gradlew :catalog:bootRun          # Catalog API on localhost:8081
-./gradlew :booking:bootRun          # Booking API on localhost:8082
+docker compose --profile core up -d  # PostgreSQL on :5432, RabbitMQ on :5672 (UI :15672)
+./gradlew :catalog:bootRun           # Catalog API on localhost:8081
+./gradlew :booking:bootRun           # Booking API on localhost:8082
+./gradlew :notification:bootRun      # Notification API on localhost:8083
 ```
 
-One PostgreSQL instance hosts one database per service (`catalog_db`, `booking_db`). The
-`booking_db` database is created by `docker/postgres/init/01-create-databases.sh` when the volume
-is first initialised; if you already had a volume from Phase 1, run `docker compose down -v` once
-(or `createdb -U eventflow booking_db`) before starting Booking.
+One PostgreSQL instance hosts one database per service (`catalog_db`, `booking_db`,
+`notification_db`). Those databases are created by `docker/postgres/init/01-create-databases.sh`
+when the volume is first initialised; if you already had a volume from an earlier phase, run
+`docker compose down -v` once (or `createdb` the missing ones) before starting the services.
 
-- Swagger UI: http://localhost:8081/swagger-ui.html and http://localhost:8082/swagger-ui.html
-- OpenAPI JSON: http://localhost:8081/v3/api-docs and http://localhost:8082/v3/api-docs
-- Health: http://localhost:8081/actuator/health and http://localhost:8082/actuator/health
+- Swagger UI: `http://localhost:8081/swagger-ui.html`, `:8082`, `:8083`
+- OpenAPI JSON: `http://localhost:8081/v3/api-docs`, `:8082`, `:8083`
+- Health: `http://localhost:8081/actuator/health`, `:8082`, `:8083`
+- RabbitMQ management UI: http://localhost:15672 (`eventflow` / `eventflow`)
 
 ## Tests
 
 ```bash
-./gradlew build              # compiles, runs unit + integration tests of every service
-./gradlew :catalog:test      # one service
+./gradlew build                # compiles, runs unit + integration tests of every service
+./gradlew :catalog:test        # one service
 ./gradlew :booking:test
+./gradlew :notification:test
 ```
 
-Integration tests start a real PostgreSQL container through Testcontainers. No H2 and
-no in-memory database is used anywhere (see `docs/adr/0003-test-strategy.md`).
+Integration tests start real PostgreSQL and RabbitMQ containers through Testcontainers. No H2, no
+in-memory database and no mocked broker are used anywhere (see `docs/adr/0003-test-strategy.md`).
+The messaging tests prove the Phase 3 gate: a stopped broker leaves the event in the outbox and a
+later tick publishes it, while duplicate deliveries produce a single effect.
 
 ## API (Catalog)
 
@@ -101,21 +108,22 @@ curl -s -X POST localhost:8081/api/events/<event-id>/publish
 | POST   | `/api/reservations`                         | Hold units; requires `X-User-Id` + `Idempotency-Key` |
 | GET    | `/api/reservations/{reservationId}`         | Read the caller's reservation                       |
 | POST   | `/api/reservations/{reservationId}/cancel`  | Cancel a `HELD` reservation and release its units   |
-| POST   | `/api/internal/inventory/events/{eventId}`  | Provisional inventory provisioning (ADR 0007)       |
 
 Inventory is authoritative in PostgreSQL: units move `available → held` with one conditional
 `UPDATE`, and a database `CHECK` keeps `available + held + sold = capacity` (ADR 0006). The
 expiry worker returns units from overdue holds; `Idempotency-Key` makes a retried creation
 return the original response instead of holding twice.
 
+Booking never learns an offering over HTTP: publishing the event in Catalog writes
+`EventPublished` to the outbox, the relay publishes it, and Booking's consumer provisions the
+inventory (ADR 0009). Give the broker a second to deliver before reserving.
+
 ```bash
+# Publish in Catalog first; Booking provisions inventory from EventPublished.
+curl -s -X POST localhost:8081/api/events/<event-id>/publish
+
 EVENT=<event-id>
 TYPE=<ticket-type-id>
-
-# Provisional until Phase 3 wires EventPublished (ADR 0007)
-curl -s -X POST localhost:8082/api/internal/inventory/events/$EVENT \
-  -H 'Content-Type: application/json' \
-  -d "{\"items\":[{\"ticketTypeId\":\"$TYPE\",\"price\":25.00,\"capacity\":400}]}"
 
 curl -s -X POST localhost:8082/api/reservations \
   -H 'Content-Type: application/json' \
@@ -125,6 +133,33 @@ curl -s -X POST localhost:8082/api/reservations \
 curl -s localhost:8082/api/events/$EVENT/availability
 ```
 
+## API (Notification)
+
+| Method | Path                                     | Description                          |
+| ------ | ---------------------------------------- | ------------------------------------ |
+| GET    | `/api/notifications?userId=&page=&size=` | A user's mailbox, newest first       |
+
+Notification has no write endpoint: entries are created only by consuming `booking.confirmed`,
+`booking.cancelled` and `booking.expired`. `userId` is required (`400 USER_ID_REQUIRED` when it is
+missing or blank), `page` starts at `0` and `size` accepts `1..100`.
+
+## Event flow
+
+```
+Catalog ──outbox──▶ eventflow.events ──▶ booking.event-published ──▶ Booking (inventory)
+Booking ──outbox──▶ eventflow.events ──▶ notification.booking-events ──▶ Notification (mailbox)
+```
+
+- **Producer side (ADR 0009):** every event is written to `outbox_event` in the same transaction as
+  its business change. A relay publishes with publisher confirms and marks the row published only
+  after the confirm, so a broker outage delays delivery instead of losing the event.
+- **Consumer side:** the inbox row `(consumer_name, event_id)` commits with the business effect, so
+  a redelivery is a no-op. Malformed envelopes and unknown `eventVersion`s are rejected at once.
+- **Retries:** each consumer queue has three retry queues (TTL `5s`, `15s`, `45s`); after the last
+  attempt the message lands in `<queue>.dlq` and the attempt count comes from the broker's
+  `x-death` header. Configure the delays with `EVENTFLOW_RETRY_DELAYS`.
+- Delivery is at-least-once, never exactly-once; the mailbox is idempotent by construction.
+
 ## Repository layout
 
 ```
@@ -132,14 +167,21 @@ services/catalog/     Catalog service (venues, events, ticket types, publication
   src/main/java/com/eventflow/catalog/
     event/            Event aggregate: Event, TicketType, repository, service, controller, dto/
     venue/            Venue aggregate: Venue, repository, service, controller, dto/
-    shared/           Cross-slice primitives: exceptions, RFC 9457 handler, page envelope
-    config/           Clock and OpenAPI beans
+    shared/           Cross-slice primitives: exceptions, RFC 9457 handler, page envelope,
+                      messaging (envelope, outbox and relay)
+    config/           Clock, OpenAPI and the RabbitMQ exchange
 services/booking/     Booking service (inventory, reservations, expiration)
   src/main/java/com/eventflow/booking/
     inventory/        EventInventory, conditional hold/release, provisioning, availability API
     reservation/      Reservation aggregate, idempotent creation, cancel, expiry worker
-    shared/           Cross-slice primitives: exceptions, RFC 9457 handler, CurrentUserProvider
-    config/           Clock, OpenAPI and BookingProperties
+    shared/           Cross-slice primitives: exceptions, RFC 9457 handler, CurrentUserProvider,
+                      messaging (envelope, outbox, relay, inbox, retry topology, recoverer)
+    config/           Clock, OpenAPI, BookingProperties and the listener recoverer
+services/notification/ Notification service (user mailbox)
+  src/main/java/com/eventflow/notification/
+    notification/     Notification entity, booking-events consumer, REST mailbox
+    shared/           Cross-slice primitives and messaging (envelope, inbox, retry topology)
+    config/           Clock, OpenAPI and the listener recoverer
 docs/                 Product specification, roadmap, ADRs, performance notes
 odd/tasks/            Feature/task tracking documents
 docker/postgres/init/ One database per service on a fresh volume
@@ -166,7 +208,7 @@ compose.yaml          Local infrastructure (profile: core)
 | 0     | Bootstrap: monorepo, Compose, conventions | done        |
 | 1     | Catalog: REST, JPA, Flyway, OpenAPI       | done        |
 | 2     | Booking: inventory, reservations, expiry  | done        |
-| 3     | Events: RabbitMQ, Outbox/Inbox            | pending     |
+| 3     | Events: RabbitMQ, Outbox/Inbox, Notification | done      |
 | 4     | Payment: saga, simulator, resilience       | pending     |
 | 5     | Frontend: React SPA                        | pending     |
 | 6     | Deployment: Compose and k3d                | pending     |

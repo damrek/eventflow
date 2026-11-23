@@ -12,9 +12,8 @@ import lombok.RequiredArgsConstructor;
 
 /**
  * Owns the inventory slice. Provisioning is idempotent by offer: the same payload is a no-op,
- * a different one is a conflict. Phase 3 calls {@link #provision} from the
- * {@code EventPublished} consumer; until then the internal HTTP endpoint is the trigger
- * (ADR 0007).
+ * a different one is a conflict. The only trigger is the {@code EventPublished} consumer
+ * (ADR 0009), which calls {@link #provision} inside its inbox transaction.
  */
 @Service
 @RequiredArgsConstructor

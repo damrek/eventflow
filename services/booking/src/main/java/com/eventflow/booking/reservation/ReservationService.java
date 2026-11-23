@@ -17,6 +17,7 @@ import com.eventflow.booking.inventory.EventInventoryRepository;
 import com.eventflow.booking.reservation.dto.ReservationResponse;
 import com.eventflow.booking.shared.domain.EntityNotFoundException;
 import com.eventflow.booking.shared.domain.StateConflictException;
+import com.eventflow.booking.shared.messaging.EventPublisher;
 
 import lombok.RequiredArgsConstructor;
 import tools.jackson.databind.json.JsonMapper;
@@ -36,6 +37,7 @@ public class ReservationService {
     private final JsonMapper jsonMapper;
     private final Clock clock;
     private final BookingProperties properties;
+    private final EventPublisher publisher;
 
     @Transactional
     public ReservationResult create(
@@ -68,6 +70,11 @@ public class ReservationService {
         Reservation reservation = requireOwned(userId, reservationId);
         reservation.cancel(clock.instant());
         ReservationInventory.releaseAll(inventory, reservation);
+        publisher.publish(
+                ReservationEventPayload.CANCELLED,
+                ReservationEventPayload.CANCELLED_ROUTING_KEY,
+                reservation.getId(),
+                ReservationEventPayload.from(reservation));
         return reservation;
     }
 

@@ -14,8 +14,8 @@ services:
       # PostgreSQL 18 images keep the cluster in /var/lib/postgresql/<major>/docker,
       # so the volume must be mounted at /var/lib/postgresql (not .../data).
       - postgres-data:/var/lib/postgresql
-      # One instance, one database per service: the script creates booking_db on a fresh
-      # volume; an existing volume needs `docker compose down -v` once.
+      # One instance, one database per service: the script creates booking_db and
+      # notification_db on a fresh volume; an existing volume needs `docker compose down -v`.
       - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
@@ -24,5 +24,25 @@ services:
       retries: 20
     restart: unless-stopped
 
+  rabbitmq:
+    image: rabbitmq:4-management-alpine
+    profiles: ["core"]
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-eventflow}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-eventflow}
+    ports:
+      # AMQP for the services, management UI at http://localhost:15672.
+      - "127.0.0.1:${RABBITMQ_PORT:-5672}:5672"
+      - "127.0.0.1:${RABBITMQ_MANAGEMENT_PORT:-15672}:15672"
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
 volumes:
   postgres-data:
+  rabbitmq-data:

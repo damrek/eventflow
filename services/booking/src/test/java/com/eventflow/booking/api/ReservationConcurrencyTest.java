@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -16,42 +17,43 @@ import java.util.concurrent.Future;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.jdbc.Sql;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.postgresql.PostgreSQLContainer;
+
+import com.eventflow.booking.inventory.InventoryItemSpec;
+import com.eventflow.booking.inventory.InventoryService;
 
 /**
  * The Phase 2 quality gate: with 100 units and concurrent demand, PostgreSQL must never hold or
  * sell more than capacity. Requests are released together so they actually contend for the row.
  */
 @SpringBootTest(properties = {
+        "eventflow.messaging.outbox.interval=200ms",
+        "eventflow.messaging.retry.delays=200ms,200ms,200ms",
+        "spring.rabbitmq.connection-timeout=2s",
         "booking.expiry.interval=PT1H",
         "spring.datasource.hikari.maximum-pool-size=20"
 })
 @AutoConfigureMockMvc
-@Testcontainers
 @Sql(scripts = "/db/cleanup.sql", executionPhase = Sql.ExecutionPhase.BEFORE_TEST_METHOD)
-class ReservationConcurrencyTest {
+class ReservationConcurrencyTest extends BookingIntegrationTest {
 
     private static final int CAPACITY = 100;
     private static final int ATTEMPTS = 200;
 
-    @Container
-    @ServiceConnection
-    static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:18-alpine");
 
     @Autowired
     private MockMvc mockMvc;
 
     @Autowired
     private JdbcTemplate jdbc;
+
+    @Autowired
+    private InventoryService inventory;
 
     private final UUID eventId = UUID.randomUUID();
     private final UUID general = UUID.randomUUID();
@@ -119,11 +121,8 @@ class ReservationConcurrencyTest {
         }
     }
 
-    private void provision() throws Exception {
-        mockMvc.perform(post("/api/internal/inventory/events/{eventId}", eventId)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(ApiFixtures.inventory(general.toString(), "25.00", CAPACITY)))
-                .andExpect(status().isCreated());
+    private void provision() {
+        inventory.provision(eventId, List.of(new InventoryItemSpec(general, new BigDecimal("25.00"), CAPACITY)));
     }
 
     private void assertInventory(int available, int held, int sold) {

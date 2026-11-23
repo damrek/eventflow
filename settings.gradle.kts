@@ -20,3 +20,6 @@ project(":catalog").projectDir = file("services/catalog")
 
 include("booking")
 project(":booking").projectDir = file("services/booking")
+
+include("notification")
+project(":notification").projectDir = file("services/notification")

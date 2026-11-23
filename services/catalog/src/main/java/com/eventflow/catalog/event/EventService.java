@@ -14,6 +14,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.eventflow.catalog.shared.domain.BusinessRuleException;
 import com.eventflow.catalog.shared.domain.EntityNotFoundException;
+import com.eventflow.catalog.shared.messaging.EventPublisher;
 import com.eventflow.catalog.venue.Venue;
 import com.eventflow.catalog.venue.VenueRepository;
 
@@ -32,6 +33,7 @@ public class EventService {
     private final EventRepository events;
     private final VenueRepository venues;
     private final Clock clock;
+    private final EventPublisher publisher;
 
     @Transactional
     public Event create(String name, UUID venueId, Instant startsAt, List<TicketTypeSpec> ticketTypes) {
@@ -46,7 +48,13 @@ public class EventService {
         Event event = events
                 .findDetailedById(eventId)
                 .orElseThrow(() -> EntityNotFoundException.of("EVENT_NOT_FOUND", "Event", eventId));
-        event.publish(clock.instant());
+        Instant now = clock.instant();
+        event.publish(now);
+        publisher.publish(
+                EventPublishedPayload.EVENT_TYPE,
+                EventPublishedPayload.ROUTING_KEY,
+                event.getId(),
+                EventPublishedPayload.from(event));
         return event;
     }
 
