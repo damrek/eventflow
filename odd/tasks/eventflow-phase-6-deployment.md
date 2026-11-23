@@ -29,12 +29,13 @@
   `runtime-static` (k3d) serves only the SPA so the Ingress owns API routing and nginx has no
   upstream DNS to resolve at start.
 - **S3 — Actuator probes.** Every service exposes `/actuator/health/liveness` and
-  `/actuator/health/readiness`: `management.endpoint.health.probes.enabled=true` and the readiness
-  group is `readinessState,db` where a database exists (`readinessState` only for the simulator).
-  Redis and the broker stay out of readiness on purpose: Redis is a throttle that fails open
-  (ADR 0011) and a broker restart must not drain every replica. `payment-simulator` gains
-  `spring-boot-starter-actuator`. A catalog integration test asserts both probes answer `200` and
-  that the readiness group reports the database indicator.
+  `/actuator/health/readiness`. Boot 4.2 already enables both groups
+  (`management.endpoint.health.probes.enabled` defaults to `true`), so the change is the readiness
+  membership: `readinessState,db` where a database exists (the simulator keeps the default). Redis
+  and the broker stay out of readiness on purpose: Redis is a throttle that fails open (ADR 0011)
+  and a broker restart must not drain every replica. `payment-simulator` gains
+  `spring-boot-starter-actuator`. `ActuatorProbeTest` asserts both probe paths answer `200`, that
+  readiness is a member of `db` while liveness is not, and that the aggregate health is `UP`.
 - **S4 — Compose `app` profile.** `compose.yaml` keeps `core` untouched and adds `catalog`,
   `booking`, `notification`, `payment`, `payment-simulator` and `frontend` under profile `app`,
   built from the images above, configured with in-network URLs
@@ -74,15 +75,15 @@
 
 ## Tasks
 
-- **T1 — Service images** (S1). Route: inline. Commit: `build(docker): add the service runtime image`.
-- **T2 — Front door image** (S2). Route: inline. Commit: `build(frontend): serve the SPA through nginx`.
-- **T3 — Actuator probes + test** (S3). Route: inline. Commit: `feat(actuator): expose liveness and readiness probes`.
-- **T4 — Compose app profile** (S4). Route: inline. Commit: `feat(compose): run the whole stack from images`.
-- **T5 — Compose operations and verification** (S5). Route: inline. Commit: `feat(scripts): add stack up, down and verify`.
-- **T6 — k3d cluster, configuration and workloads** (S6, S7). Route: inline. Commit:
-  `feat(deploy): add the k3d manifests and cluster scripts`.
+- **T1 — Service images** (S1). Route: inline. Done: `7c62cd4`.
+- **T2 — Front door image** (S2). Route: inline. Done: `db481fd`.
+- **T3 — Actuator probes + test** (S3). Route: inline. Done: `35a148d`.
+- **T4 — Compose app profile** (S4). Route: inline. Done: `31cf160`.
+- **T5 — Compose operations and verification** (S5). Route: inline. Done: `380ba1f`.
+- **T6 — k3d cluster, configuration and workloads** (S6, S7). Route: inline. Done: cluster,
+  manifests and scripts verified by `k3d-verify.sh` (commit after the docs).
 - **T7 — k3d verification and docs** (S8). Route: inline with an independent verifier (Risk: item 5).
-  Commit: `docs: record phase 6 deployment`.
+  In progress.
 
 ## Log
 
@@ -97,3 +98,45 @@
   gate proves it instead of adding new coordination.
 - **L4 (2026-11-23, evidence):** `docker 29.1.3`, `docker compose v5.7.0`, 30 GB RAM, 12 cores;
   `k3d`, `kubectl` and `helm` were absent before this phase. Image tags verified on Docker Hub.
+- **L5 (2026-11-23, discovery):** `management.endpoint.health.probes.enabled` defaults to `true` in
+  Boot 4.2 (checked in `spring-configuration-metadata.json` of `spring-boot-health:4.2.0`, after the
+  probe endpoints answered without the property), so S3 shrank to the readiness group membership.
+  RED was observed by stashing only `services/catalog/.../application.yml`:
+  `readinessCoversTheDatabaseAndLivenessDoesNot` failed on `isMember("db")`; GREEN after restoring it.
+  `:catalog:test` runs 39 tests, 0 failures; `:payment-simulator:test` passes.
+- **L6 (2026-11-23, evidence stage 6A):** `./scripts/stack-up.sh` built and started the six images
+  and every healthcheck reported healthy. `./scripts/stack-verify.sh` passed the whole documented
+  flow through `http://localhost:8080` exactly as a browser would: venue, event, publish, provision,
+  waiting room admission, hold, checkout, `CONFIRMED`, `BOOKING_CONFIRMED` in the mailbox and
+  `available=9, held=0, sold=1, capacity=10`.
+- **L7 (2026-11-23, tooling):** installed `kubectl v1.37.2` and `k3d v5.9.0` (k3s `v1.35.5`) as user
+  binaries in `~/.local/bin` from the official release URLs; no root and no system package change.
+- **L8 (2026-11-23, decision):** the frontend serves two targets because nginx cannot bind `:80` as
+  a non-root user without a capability: Compose keeps `nginx:1.29-alpine` on `:80` behind the
+  published port, while k3d uses `nginxinc/nginx-unprivileged:1.29-alpine` on `:8080` with all
+  capabilities dropped.
+- **L9 (2026-11-23, defect found and fixed):** every service pod crashed at start with
+  `Invalid value '${CATALOG_PORT:8081}' for configuration property 'server.port'`. Cause:
+  Kubernetes service links inject `<SERVICE>_PORT=tcp://<ip>:<port>` for every Service in the
+  namespace, so `CATALOG_PORT`, `BOOKING_PORT`, `PAYMENT_PORT`, `NOTIFICATION_PORT` and
+  `PAYMENT_SIMULATOR_PORT` were no longer integers. Fixed with `enableServiceLinks: false` on every
+  pod spec, which leaves the explicit environment as the only source.
+- **L10 (2026-11-23, defect found and fixed):** RabbitMQ crash-looped with
+  `.erlang.cookie must be accessible by owner only`; a `fsGroup` on the pod made the volume
+  group-owned. Removed `fsGroup` for that StatefulSet, which the image's own entrypoint handles
+  (it drops from root to the `rabbitmq` user). Fresh PVC so the cookie is created cleanly.
+- **L11 (2026-11-23, evidence stage 6B):** `./scripts/k3d-up.sh` created the cluster
+  (1 server + 1 agent, ingress on `:8090`), imported the six images and applied
+  `kubectl apply -k deploy/k8s`. `./scripts/k3d-verify.sh` then passed the whole gate: the
+  documented flow through the Ingress (the same checks as Compose, on `:8090`),
+  Booking `2/2`, both replicas reachable, a token minted through replica A honoured by replica B,
+  `20` concurrent holds on `10` units across both replicas ending `10 held / 10
+  INSUFFICIENT_TICKETS` with `available + held + sold = capacity`, a deleted Booking pod replaced
+  while the Ingress kept serving, both replicas leaving readiness when PostgreSQL was scaled to
+  zero without a liveness restart, and readiness returning after PostgreSQL came back.
+- **L12 (2026-11-23, verification nuance):** the first readiness run attributed a restart to
+  liveness. It was a replacement pod starting while PostgreSQL was down: the deployment recreated
+  the pod that the pod-replacement step had just deleted, and its Flyway run could not connect.
+  The script now waits for the deleted pod to disappear before the readiness step and compares
+  restart counts only for pods that existed before the outage; a replacement pod is not evidence
+  about liveness.
