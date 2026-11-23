@@ -1,7 +1,7 @@
 package com.eventflow.booking.api;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.hamcrest.Matchers.greaterThanOrEqualTo;
+import static org.hamcrest.Matchers.matchesPattern;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -71,7 +71,7 @@ class WaitingRoomRateLimitTest extends BookingIntegrationTest {
         join()
                 .andExpect(status().isTooManyRequests())
                 .andExpect(header().exists("Retry-After"))
-                .andExpect(header().string("Retry-After", greaterThanOrEqualTo("1")))
+                .andExpect(header().string("Retry-After", matchesPattern("[1-9][0-9]*")))
                 .andExpect(jsonPath("$.code").value("RATE_LIMITED"))
                 .andExpect(jsonPath("$.retryAfterSeconds").isNumber());
     }

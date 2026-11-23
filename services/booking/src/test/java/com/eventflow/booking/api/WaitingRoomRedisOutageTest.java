@@ -93,7 +93,8 @@ class WaitingRoomRedisOutageTest extends BookingIntegrationTest {
         }
 
         await().atMost(60, SECONDS).ignoreExceptions().untilAsserted(() ->
-                mockMvc.perform(post("/api/waiting-room/{eventId}/join", eventId).header("X-User-Id", "after-restart"))
+                mockMvc.perform(get("/api/waiting-room/{eventId}/status", eventId)
+                                .header("X-User-Id", "after-restart"))
                         .andExpect(status().isOk()));
 
         // The queue was ephemeral: the user that joined before the outage has no position any more.
@@ -101,8 +102,26 @@ class WaitingRoomRedisOutageTest extends BookingIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("NOT_JOINED"));
 
+        // Redis being back does not create stock: the four remaining units are the only ones
+        // that can be held, so a five-unit request is refused by PostgreSQL.
+        mockMvc.perform(post("/api/reservations")
+                        .header("X-User-Id", USER)
+                        .header("Idempotency-Key", "after-restart-oversell")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(ApiFixtures.reservation(eventId.toString(), general.toString(), 5)))
+                .andExpect(status().isUnprocessableContent())
+                .andExpect(jsonPath("$.code").value("INSUFFICIENT_TICKETS"));
+
         assertThat(inventory.availability(eventId).getFirst().getAvailable()
                 + inventory.availability(eventId).getFirst().getHeld()
                 + inventory.availability(eventId).getFirst().getSold()).isEqualTo(5);
+        assertThat(inventory.availability(eventId).getFirst().getHeld()).isEqualTo(1);
+
+        // The room works again after the restart, starting from an empty queue.
+        mockMvc.perform(post("/api/waiting-room/{eventId}/join", eventId)
+                        .header("X-User-Id", "after-restart"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("WAITING"))
+                .andExpect(jsonPath("$.position").value(1));
     }
 }
