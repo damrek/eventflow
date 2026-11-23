@@ -51,6 +51,14 @@ management:
     web:
       exposure:
         include: health,info
+  endpoint:
+    health:
+      # Boot 4.2 enables the liveness and readiness groups by default. Readiness is widened with the
+      # database because a replica that cannot read its schema must not take traffic; the broker is
+      # deliberately excluded, so a broker restart never drains every replica.
+      group:
+        readiness:
+          include: readinessState,db
 
 springdoc:
   api-docs:
