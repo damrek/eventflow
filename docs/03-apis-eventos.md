@@ -74,7 +74,9 @@ Analytics Service en MVP.
 
 - Topic exchange durable: `eventflow.events`.
 - Colas durables por consumidor: `booking.event-published`, `payment.payment-requested`, `booking.payment-result`, `notification.booking-events`.
-- Routing keys por tipo: `event.published`, `payment.requested`, `payment.authorized`, `payment.rejected`, `booking.confirmed`, etc.
+- Routing keys por tipo: `event.published`, `payment.requested`, `payment.authorized`,
+  `payment.rejected`, `payment.refund-requested`, `booking.confirmed`, `booking.cancelled`,
+  `booking.expired`, `booking.payment-failed`, etc.
 - DLQ por cola de negocio. Reintentos acotados con backoff y colas de retry; al agotar intentos, DLQ y alerta/log estructurado.
 - ACK solo después de completar la transacción de consumidor. No hacer `requeue=true` infinito.
 - Configurar publisher confirms y persistencia de mensajes/colas. Documentar la política de retención y replay.

@@ -149,11 +149,11 @@ curl -s localhost:8082/api/events/$EVENT/availability
 
 ## Payment (internal) and its simulator
 
-Payment exposes no REST API: it consumes `payment.requested` and publishes `payment.authorized` or
-`payment.rejected`. Each reservation gets one logical payment, one provider call and one audit row
-(`payment_attempt`); the provider call runs inside the consumer transaction, so a timeout rolls the
-inbox, the payment and the result event back together and the broker retries instead of finalizing
-a payment nobody answered.
+Payment exposes no REST API: it consumes `payment.requested` and `payment.refund-requested` and
+publishes `payment.authorized` or `payment.rejected`. Each reservation gets one logical payment, at
+most one settled authorization and one audit row per answered provider call (`payment_attempt`);
+the call runs inside the consumer transaction, so a timeout rolls the inbox, the payment and the
+result event back together and the broker retries instead of finalizing a payment nobody answered.
 
 The provider is the `:payment-simulator` app, a deterministic HTTP double. Its outcome depends on
 the amount, so tests and demos need no shared switch:
@@ -267,7 +267,7 @@ compose.yaml          Local infrastructure (profile: core)
 | 1     | Catalog: REST, JPA, Flyway, OpenAPI       | done        |
 | 2     | Booking: inventory, reservations, expiry  | done        |
 | 3     | Events: RabbitMQ, Outbox/Inbox, Notification | done      |
-| 4     | Payment: saga, simulator, resilience       | pending     |
+| 4     | Payment: saga, simulator, resilience       | done        |
 | 5     | Frontend: React SPA                        | pending     |
 | 6     | Deployment: Compose and k3d                | pending     |
 | 7     | Observability: Prometheus, Grafana, OTEL   | pending     |
