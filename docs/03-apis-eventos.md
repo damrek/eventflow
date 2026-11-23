@@ -19,7 +19,8 @@ Todas las APIs bajo `/api`. Documentar cada servicio con OpenAPI/Swagger.
 - `POST /api/reservations/{reservationId}/checkout`
 - `POST /api/reservations/{reservationId}/cancel`
 
-**Payment**: interno, no expuesto al frontend; consume `PaymentRequested` y publica resultado. **Notification**: `GET /api/notifications?userId=&page=`.
+**Payment**: interno, no expuesto al frontend; consume `PaymentRequested` y `PaymentRefundRequested`
+y publica `PaymentAuthorized` o `PaymentRejected`. **Notification**: `GET /api/notifications?userId=&page=`.
 
 La demo usa un `X-User-Id` sintético detrás de `CurrentUserProvider`. No es autenticación real.
 
@@ -58,11 +59,16 @@ Usar nombres estables, UTC, versionado explícito y payloads mínimos. No inclui
 | `PaymentRequested` | Booking | Payment |
 | `PaymentAuthorized` | Payment | Booking |
 | `PaymentRejected` | Payment | Booking |
+| `PaymentRefundRequested` | Booking | Payment (compensación de pago tardío) |
 | `BookingConfirmed` | Booking | Notification |
 | `BookingExpired` | Booking | Notification |
 | `BookingCancelled` | Booking | Notification |
+| `BookingPaymentFailed` | Booking | Notification |
 
-`BookingCreated` es opcional para analytics; no implementar Analytics Service en MVP.
+`PaymentRefundRequested` y `BookingPaymentFailed` se añadieron en la Fase 4 (ADR 0010): el primero
+compensa una autorización que llega cuando la reserva ya no se puede confirmar; el segundo informa
+al usuario de un pago rechazado. `BookingCreated` es opcional para analytics; no implementar
+Analytics Service en MVP.
 
 ## RabbitMQ
 

@@ -37,9 +37,12 @@ names exactly those two.
 5. **Bounded retries with backoff, then a DLQ.** Each business queue has one retry queue per
    configured delay (`5s`, `15s`, `45s` by default, `eventflow.messaging.retry.delays`). A failing
    delivery is republished to `<queue>.retry.N`, whose message TTL returns it to the business
-   queue; the attempt number is read from the broker's `x-death` header, so it survives restarts
-   and is shared by replicas. After the last attempt the message is rejected without requeue and
-   the business queue's dead-letter arguments move it to `<queue>.dlq`.
+   queue; the attempt number travels in the `x-eventflow-retry-attempt` header the recoverer writes
+   (ADR 0010 supersedes the original `x-death` counting), so it survives restarts and is shared by
+   replicas. After the last attempt the message is rejected without requeue and the business
+   queue's dead-letter arguments move it to `<queue>.dlq`. Boot's listener retry advice is enabled
+   with `max-retries: 0` and `stateless: true`, so one delivery means one handler attempt and the
+   backoff lives in the broker.
 6. **Permanent failures skip the retries.** A malformed envelope, an event type the consumer does
    not handle, or an `eventVersion` this build cannot read is rejected immediately: retrying would
    only delay the same DLQ outcome.
@@ -72,8 +75,8 @@ names exactly those two.
 - Because each service parses the envelope it consumes, a producer can add payload fields without
   breaking a consumer, and a consumer must bump `eventVersion` for a breaking change.
 - `docs/03-apis-eventos.md` remains the contract; `PaymentRequested`, `PaymentAuthorized`,
-  `PaymentRejected` and `BookingConfirmed` arrive with the Payment service (Phase 4), and their
-  queue bindings can be added without changing this design.
+  `PaymentRejected`, `BookingConfirmed`, `PaymentRefundRequested` and `BookingPaymentFailed` were
+  added by Phase 4 (ADR 0010) without changing this design.
 
 ## Alternatives considered
 
