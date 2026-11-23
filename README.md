@@ -5,7 +5,7 @@ reservations, a waiting room and a simulated payment provider. The goal is not f
 count: it is a small system where every concurrency, idempotency and failure-handling
 claim is provable with tests.
 
-**Current status: Phase 0 (bootstrap) and Phase 1 (Catalog) complete.**
+**Current status: Phase 0 (bootstrap), Phase 1 (Catalog) and Phase 2 (Booking) complete.**
 
 ## Stack
 
@@ -36,17 +36,24 @@ Gradle is not required: use the wrapper.
 cp .env.example .env
 docker compose --profile core up -d          # PostgreSQL on localhost:5432
 ./gradlew :catalog:bootRun          # Catalog API on localhost:8081
+./gradlew :booking:bootRun          # Booking API on localhost:8082
 ```
 
-- Swagger UI: http://localhost:8081/swagger-ui.html
-- OpenAPI JSON: http://localhost:8081/v3/api-docs
-- Health: http://localhost:8081/actuator/health
+One PostgreSQL instance hosts one database per service (`catalog_db`, `booking_db`). The
+`booking_db` database is created by `docker/postgres/init/01-create-databases.sh` when the volume
+is first initialised; if you already had a volume from Phase 1, run `docker compose down -v` once
+(or `createdb -U eventflow booking_db`) before starting Booking.
+
+- Swagger UI: http://localhost:8081/swagger-ui.html and http://localhost:8082/swagger-ui.html
+- OpenAPI JSON: http://localhost:8081/v3/api-docs and http://localhost:8082/v3/api-docs
+- Health: http://localhost:8081/actuator/health and http://localhost:8082/actuator/health
 
 ## Tests
 
 ```bash
-./gradlew build      # compiles, runs unit + integration tests
-./gradlew test       # tests only
+./gradlew build              # compiles, runs unit + integration tests of every service
+./gradlew :catalog:test      # one service
+./gradlew :booking:test
 ```
 
 Integration tests start a real PostgreSQL container through Testcontainers. No H2 and
@@ -86,17 +93,56 @@ curl -s -X POST localhost:8081/api/events -H 'Content-Type: application/json' -d
 curl -s -X POST localhost:8081/api/events/<event-id>/publish
 ```
 
+## API (Booking)
+
+| Method | Path                                        | Description                                         |
+| ------ | ------------------------------------------- | --------------------------------------------------- |
+| GET    | `/api/events/{eventId}/availability`        | Capacity/available/held/sold per ticket type        |
+| POST   | `/api/reservations`                         | Hold units; requires `X-User-Id` + `Idempotency-Key` |
+| GET    | `/api/reservations/{reservationId}`         | Read the caller's reservation                       |
+| POST   | `/api/reservations/{reservationId}/cancel`  | Cancel a `HELD` reservation and release its units   |
+| POST   | `/api/internal/inventory/events/{eventId}`  | Provisional inventory provisioning (ADR 0007)       |
+
+Inventory is authoritative in PostgreSQL: units move `available → held` with one conditional
+`UPDATE`, and a database `CHECK` keeps `available + held + sold = capacity` (ADR 0006). The
+expiry worker returns units from overdue holds; `Idempotency-Key` makes a retried creation
+return the original response instead of holding twice.
+
+```bash
+EVENT=<event-id>
+TYPE=<ticket-type-id>
+
+# Provisional until Phase 3 wires EventPublished (ADR 0007)
+curl -s -X POST localhost:8082/api/internal/inventory/events/$EVENT \
+  -H 'Content-Type: application/json' \
+  -d "{\"items\":[{\"ticketTypeId\":\"$TYPE\",\"price\":25.00,\"capacity\":400}]}"
+
+curl -s -X POST localhost:8082/api/reservations \
+  -H 'Content-Type: application/json' \
+  -H 'X-User-Id: demo-user' -H 'Idempotency-Key: order-1' \
+  -d "{\"eventId\":\"$EVENT\",\"items\":[{\"ticketTypeId\":\"$TYPE\",\"quantity\":2}]}"
+
+curl -s localhost:8082/api/events/$EVENT/availability
+```
+
 ## Repository layout
 
 ```
-services/catalog/     Catalog service
+services/catalog/     Catalog service (venues, events, ticket types, publication)
   src/main/java/com/eventflow/catalog/
     event/            Event aggregate: Event, TicketType, repository, service, controller, dto/
     venue/            Venue aggregate: Venue, repository, service, controller, dto/
     shared/           Cross-slice primitives: exceptions, RFC 9457 handler, page envelope
     config/           Clock and OpenAPI beans
+services/booking/     Booking service (inventory, reservations, expiration)
+  src/main/java/com/eventflow/booking/
+    inventory/        EventInventory, conditional hold/release, provisioning, availability API
+    reservation/      Reservation aggregate, idempotent creation, cancel, expiry worker
+    shared/           Cross-slice primitives: exceptions, RFC 9457 handler, CurrentUserProvider
+    config/           Clock, OpenAPI and BookingProperties
 docs/                 Product specification, roadmap, ADRs, performance notes
 odd/tasks/            Feature/task tracking documents
+docker/postgres/init/ One database per service on a fresh volume
 compose.yaml          Local infrastructure (profile: core)
 ```
 
@@ -119,7 +165,7 @@ compose.yaml          Local infrastructure (profile: core)
 | ----- | ---------------------------------------- | ----------- |
 | 0     | Bootstrap: monorepo, Compose, conventions | done        |
 | 1     | Catalog: REST, JPA, Flyway, OpenAPI       | done        |
-| 2     | Booking: inventory, reservations          | next        |
+| 2     | Booking: inventory, reservations, expiry  | done        |
 | 3     | Events: RabbitMQ, Outbox/Inbox            | pending     |
 | 4     | Payment: saga, simulator, resilience       | pending     |
 | 5     | Frontend: React SPA                        | pending     |
