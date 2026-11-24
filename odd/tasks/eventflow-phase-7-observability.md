@@ -114,6 +114,8 @@
 - **T5 — Observability profile, configs and dashboards** (S5). Route: inline. Done: `411e98d`.
 - **T6 — Stack scripts and end-to-end verification** (S6). Route: inline. Done: `1cdadd3`.
 - **T7 — Docs, ADR and independent verification** (S7). Route: inline with an independent verifier.
+  Done: `85b58db`, `20e1326`, `608c8ed`, `e3f8072`; verifier verdict `met` on S1–S7 with zero
+  blockers, advisories actioned in L17–L20.
 
 ## Log
 
