@@ -37,5 +37,8 @@ management:
   # (Boot 4.2 enables both) already describe it: the application state alone.
 
 logging:
-  pattern:
-    level: "%5p [traceId=%X{traceId:-none}]"
+  structured:
+    format:
+      # One JSON object per line (ECS) on stdout: service.name, trace.id, span.id and the MDC
+      # (requestId, and reservationId/eventId while a consumer handles an event).
+      console: ${EVENTFLOW_LOG_FORMAT:ecs}

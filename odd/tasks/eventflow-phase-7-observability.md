@@ -53,12 +53,15 @@
   - **Outbox continuity:** a relay publishes seconds after the request that wrote the row, in
     another thread, so without help the broker hop starts an unrelated trace. Catalog, Booking and
     Payment persist the W3C `traceparent` of the span that wrote the outbox row (migration
-    `V4__outbox_trace_context.sql`, nullable `traceparent varchar(100)`) and the relay restores it
-    as the parent scope around the send. A row without a `traceparent` (a scheduled job) publishes
-    under the relay's own span, unchanged.
-  - Test (Booking `OutboxTraceTest`): a creation through the API leaves a W3C-shaped `traceparent`
-    (`00-<32 hex>-<16 hex>-0[01]`) on the outbox row, and the relay publishes that exact header to
-    a durable probe queue; an idempotent replay keeps the first row's value.
+    `V3__outbox_trace_context.sql` in Catalog and Payment, `V4__…` in Booking — the next free
+    version in each service — nullable `traceparent varchar(100)`) and the relay restores it before
+    the send, so the broker receives the same **trace id** with the relay hop as the new parent id
+    (W3C advances the parent on every hop; the trace id is what must survive). A row without a
+    `traceparent` (a scheduled job) publishes under the relay's own span, unchanged.
+  - Test (Booking `OutboxTraceTest`): a checkout leaves a W3C-shaped `traceparent`
+    (`00-<32 hex>-<16 hex>-<2 hex flags>`) on the outbox row, and the relay publishes the same
+    trace id to a durable probe queue with the relay hop as the new parent; a row inserted with
+    `traceparent = null` still publishes.
 - **S4 — Structured JSON logs.** Every service sets `logging.structured.format.console: ecs`, so
   stdout is one JSON object per line carrying `service.name` (from `spring.application.name`),
   `trace.id`, `span.id` and the MDC. Booking's payment-result listener and Notification's consumer
@@ -104,6 +107,7 @@
 - **T1 — Prometheus endpoint in the five services** (S1). Route: inline. Done: `e7813d0`.
 - **T2 — Business meters and their tests** (S2). Route: inline. Done: `0b70b79`.
 - **T3 — Tracing deps, HTTP/AMQP observation, outbox traceparent** (S3). Route: inline.
+  Done: `4d5d75d`.
 - **T4 — ECS structured logs and MDC ids** (S4). Route: inline.
 - **T5 — Observability profile, configs and dashboards** (S5). Route: inline.
 - **T6 — Stack scripts and end-to-end verification** (S6). Route: inline.
@@ -154,3 +158,23 @@
   `PaymentMetrics` registers its three `reason` series at startup: a lazily created counter made
   `payment_failures_total` absent from the scrape until the first failure, which a dashboard would
   render as "no data" instead of zero.
+- **L9 (2026-11-24, evidence T3):** Boot 4.2's tracing auto-configuration is split into modules, so
+  the service needs `spring-boot-micrometer-tracing-opentelemetry` (auto-configuration) plus the
+  runtime `micrometer-tracing-bridge-otel` and `opentelemetry-exporter-otlp`; the starter was not
+  used because it also adds `micrometer-registry-otlp`, which would push a second copy of every
+  metric while Prometheus scrapes them. `OTEL_TRACES_ENABLED` defaults to `false` so a `bootRun` or
+  a test run creates and propagates spans without posting them to a collector that does not exist.
+- **L10 (2026-11-24, defect found and fixed by an existing test):** enabling tracing broke
+  `CatalogApiIntegrationTest.echoesRequestIdInHeaderAndProblemDetails` and
+  `ignoresUnsafeRequestId`: Micrometer's correlation decorator writes `traceId` into the MDC, so the
+  `X-Request-Id` value this project put under `traceId` was overwritten by the OpenTelemetry trace
+  id. The MDC key is now `requestId` (`TraceId.MDC_KEY`), the public contract is unchanged (`409`
+  bodies still echo the caller's id as `traceId`) and log correlation gains the real trace id.
+- **L11 (2026-11-24, API facts verified in the jar, not assumed):** `micrometer-tracing 1.8.0` has
+  no `io.micrometer.tracing.Scope`/`SpanContext` types: `Span.context()` returns `TraceContext`,
+  `Propagator.inject` takes a `TraceContext`, `Propagator.extract` returns a `Span.Builder`, and a
+  scope is `Tracer.SpanInScope` (Closeable). The relay therefore extracts, starts a span named
+  `outbox relay` as the child of the stored context and ends it after the send. Observed in the
+  first RED of `OutboxTraceTest`: the broker got the same trace id with a new parent id (`03` flags
+  = sampled + random trace id), which is why the assertion compares trace ids and not whole
+  headers.
