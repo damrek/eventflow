@@ -1,13 +1,118 @@
 # EventFlow
 
-Portfolio fullstack project that demonstrates distributed-systems design through ticket
-reservations, a waiting room and a simulated payment provider. The goal is not feature
-count: it is a small system where every concurrency, idempotency and failure-handling
-claim is provable with tests.
+A ticket-booking platform built as five Spring Boot services and a React SPA, where the interesting
+part is not the CRUD: it is selling a limited stock correctly when 200 people press *buy* at the same
+time, keeping a message from being lost when the broker dies, and compensating a payment that arrives
+after the reservation expired. Every concurrency, idempotency and failure-handling claim on this page
+is backed by a test you can run, not by an adjective.
 
-**Current status: Phase 0 (bootstrap), Phase 1 (Catalog), Phase 2 (Booking), Phase 3 (Events),
-Phase 4 (Payment/Saga), Phase 5 (Frontend + Redis waiting room), Phase 6 (Deployment: Compose and
-k3d) and Phase 7 (Observability: Prometheus, Grafana, OpenTelemetry and Tempo) complete.**
+**Status: Phases 0-8 complete** — bootstrap, Catalog, Booking, Events, Payment/Saga, Frontend +
+Redis waiting room, Deployment (Compose and k3d), Observability (Prometheus, Grafana, OpenTelemetry,
+Tempo) and Portfolio (CI, k6, ADRs, README).
+
+## The problem it solves
+
+A concert hall has 300 seats and a marketing campaign that sends 10,000 people to the same page at
+the same minute. Three things go wrong in systems like this, and each one is a design decision here:
+
+1. **Overselling.** Two requests read `available = 1` and both write a hold. EventFlow never reads
+   then writes: units move with one conditional `UPDATE`, and a database `CHECK` refuses any state
+   where `available + held + sold ≠ capacity` (ADR 0006).
+2. **Losing the sale in the gap between the database and the broker.** Writing the row and publishing
+   the event are not atomic across two systems. EventFlow writes the event into the same transaction
+   (`outbox_event`) and a relay publishes it with publisher confirms (ADR 0009). A broker outage
+   delays a message; it cannot lose it.
+3. **Charging someone for a ticket that was already released.** Payment is asynchronous, so an
+   approval can arrive after the hold expired. EventFlow compensates instead of confirming: the
+   reservation stays `EXPIRED`, the units stay released, and a refund is requested (ADR 0010).
+
+Around those three sit a Redis waiting room that is a throttle and never the stock authority
+(ADR 0011), a deterministic payment provider double, and one OpenTelemetry trace that crosses HTTP,
+the outbox relay and the broker hops.
+
+## Architecture
+
+```
+                    ┌──────────────┐
+   React SPA ──────▶│    nginx     │  one origin: /, /api/catalog, /api/booking, /api/notification
+   (browser)        │   :8080      │
+                    └──────┬───────┘
+        ┌──────────────────┼──────────────────┬────────────────────┐
+        ▼                  ▼                  ▼                    ▼
+   Catalog :8081      Booking :8082     Notification :8083   Payment :8084
+   venues, events,    inventory,        user mailbox         authorization + refund
+   publication        reservations,                            (no REST API)
+                      waiting room
+        │                  │                  ▲                    ▲
+        └── outbox ────────┴── outbox ────────┴─── consumed ───────┘
+                    ┌──────────────────────────────────┐
+                    │ RabbitMQ  eventflow.events       │  topic exchange + per-queue retry
+                    │ (+ .dlx, retry queues, DLQs)     │  queues with TTLs and DLQs
+                    └──────────────────────────────────┘
+   PostgreSQL: catalog_db · booking_db · notification_db · payment_db (one owner each)
+   Redis: waiting-room queue, admission tokens, rate-limit windows (throttle only)
+   Observability: Prometheus · Grafana (dashboards as code) · OTel collector · Tempo
+```
+
+The full message flow, with the routing keys and the compensation path, is in
+[Event flow](#event-flow).
+
+### The invariants behind it
+
+| Invariant | Where it lives |
+| --- | --- |
+| PostgreSQL is the source of truth for stock and reservations; Redis never decides availability | ADR 0006, ADR 0011 |
+| Each service owns its database; no shared entities, tables or repositories | ADR 0005 |
+| Units move only through conditional statements, protected by a `CHECK` | ADR 0006 |
+| Events leave through a transactional outbox; consumers are idempotent; delivery is at-least-once | ADR 0009 |
+| Payment is a saga with an explicit compensation for late authorizations | ADR 0010 |
+| Business rules live in aggregates, never in controllers, listeners or scripts | ADR 0005 |
+
+## How each claim is proven
+
+| Claim | Test | Command |
+| --- | --- | --- |
+| 100 units, 200 simultaneous holds: exactly 100 held, never negative, `available + held + sold = capacity` | `ReservationConcurrencyTest` | `./gradlew :booking:test --tests "*ReservationConcurrencyTest"` |
+| A stopped broker leaves the event in the outbox and the relay publishes it when the broker returns | `EventPublicationIntegrationTest` | `./gradlew :booking:test --tests "*EventPublicationIntegrationTest"` |
+| A duplicate delivery produces one effect; an unreadable event ends in the DLQ | `NotificationConsumerTest`, `EventPublishedConsumerTest` | `./gradlew :notification:test` |
+| Payment approves, rejects, times out, survives a duplicate and compensates a late authorization | `PaymentConsumerTest`, `PaymentSagaIntegrationTest`, `PaymentGatewayCircuitBreakerTest` | `./gradlew :payment:test` |
+| The waiting room admits in batches, tokens expire, two replicas share one window, a Redis restart never oversells | `WaitingRoomIntegrationTest`, `WaitingRoomRateLimitTest`, `RateLimitSharedStateTest`, `WaitingRoomRedisOutageTest` | `./gradlew :booking:test` |
+| The SPA walks catalog → waiting room → reservation → payment → mailbox with no simulated confirmation | `criticalFlow.test.tsx` | `cd frontend && npm test` |
+| One trace links the Booking request, the broker hops, the payment and the notification consumer | `observability-verify.sh` | `./scripts/observability-verify.sh` |
+| The pipeline runs the real gates, with pinned actions and no load test per PR | `ci-invariants-test.sh` | `./scripts/ci-invariants-test.sh` |
+| The documented flow works end to end on the running stack | `demo.sh` | `./scripts/demo.sh` |
+| Under a 200-attempt burst on 50 units, exactly 50 holds are created and the sum still equals capacity | `reservation-contention` scenario | `./scripts/load-test.sh reservation-contention` |
+
+## Performance
+
+Two k6 scenarios, measured on this machine and committed with their raw results
+([`docs/performance`](docs/performance/README.md)):
+
+| Scenario | Result on the recorded run |
+| --- | --- |
+| `read-path` — event list + availability at 20 iterations/s | 0 % failed, avg 2.6 ms, p95 3.1 ms |
+| `reservation-contention` — 40 VUs × 5 attempts on 50 units | exactly 50 holds created, 150 refused, `0 + 50 + 0 = 50` after the run |
+
+Those numbers describe one host and one warm stack; the README of the scenarios says what they do
+**not** prove.
+
+## Screenshots
+
+Taken from the running Compose stack with a headless browser, so they are the real UI and the real
+metrics, not mockups.
+
+| | |
+| --- | --- |
+| ![The catalog with three published events](docs/assets/catalog.png) | ![Event detail with live availability](docs/assets/event-detail.png) |
+| Catalog: only `PUBLISHED` events, served by Catalog | Event detail: live availability from Booking, ticket form |
+| ![Waiting room queue position](docs/assets/waiting-room.png) | ![A confirmed reservation](docs/assets/reservation-confirmed.png) |
+| Waiting room: position and waiting count from Redis, refreshed every 2 s | Reservation: `CONFIRMED` reported by Booking, payment status from the saga |
+| ![The business dashboard](docs/assets/grafana-business.png) | ![The REST dashboard](docs/assets/grafana-rest.png) |
+| Business dashboard: attempts, confirmations, conflicts, expirations, waiting users and the three provider failure reasons — provisioned from JSON, not clicked | REST dashboard: p50/p95/p99 per service, 5xx ratio and errors by status |
+
+One trace per booking is proven by `./scripts/observability-verify.sh`, which asserts that a single
+Tempo trace id carries spans from Booking, Payment and Notification and that the same id appears in
+Booking's JSON log; a screenshot of a waterfall would add nothing a script cannot check.
 
 ## Stack
 
@@ -88,6 +193,7 @@ development:
 ```bash
 ./scripts/stack-up.sh      # build and start profiles "core" and "app", wait for every healthcheck
 ./scripts/stack-verify.sh  # the documented flow through http://localhost:8080
+./scripts/demo.sh          # the same flow as a narrated walkthrough, asserting every state
 ./scripts/stack-down.sh    # stop the containers (add --volumes to delete PostgreSQL/RabbitMQ data)
 ```
 
@@ -195,9 +301,19 @@ The script is idempotent: it only creates what is absent.
 ./gradlew :payment:test
 ./gradlew :payment-simulator:test
 
-cd frontend && npm test          # Vitest + Testing Library
-cd frontend && npm run build     # tsc -b + Vite production build
+cd frontend && npm ci
+cd frontend && npm run format:check   # Prettier
+cd frontend && npm run lint           # ESLint (typescript-eslint + react-hooks)
+cd frontend && npm test               # Vitest + Testing Library
+cd frontend && npm run build          # tsc -b + Vite production build
+
+./scripts/ci-invariants-test.sh       # the CI contract, statically (43 checks + actionlint)
+./scripts/demo.sh                     # the documented flow, asserted, against a running stack
+./scripts/load-test.sh read-path      # k6, see docs/performance
 ```
+
+`./gradlew build`, the four frontend commands and the image builds are what CI runs on every pull
+request (`.github/workflows/ci.yml`); load tests are deliberately not part of it.
 
 Integration tests start real PostgreSQL, RabbitMQ and Redis containers through Testcontainers, and
 the Payment tests talk to a real HTTP provider double. No H2, no in-memory database, no mocked
@@ -421,12 +537,16 @@ frontend/             React SPA (Vite, TypeScript, Tailwind)
   src/hooks/          Countdown and other client hooks
   src/routes/         Route table
 docs/                 Product specification, roadmap, ADRs, performance notes
+docs/assets/          Screenshots taken from the running stack
+docs/performance/     k6 scenarios, the runner's results and what they do not prove
 odd/tasks/            Feature/task tracking documents
 docker/service.Dockerfile  Multi-stage image for any service (`--build-arg SERVICE=`)
 docker/postgres/init/ One database per service on a fresh volume
 deploy/k8s/           kustomize project applied by scripts/k3d-up.sh
-scripts/              dev-up/dev-down (host), stack-up/verify/down, observability-up/verify/down, k3d-up/verify/down
+scripts/              dev-up/dev-down (host), stack-up/verify/down, demo, load-test, observability-*,
+                      k3d-*, and the invariant suites (deployment, observability, CI)
 deploy/observability/ Prometheus, Grafana (dashboards as code), collector and Tempo configuration
+.github/workflows/    CI: frontend gates, the full Gradle suite and the six images
 compose.yaml          Infrastructure (profile: core) and the images (profile: app)
 ```
 
@@ -443,6 +563,23 @@ compose.yaml          Infrastructure (profile: core) and the images (profile: ap
 - **Errors:** every failure returns `application/problem+json` with a stable `code` and the
   request `traceId`.
 
+## What this is not
+
+Being explicit about the limits is part of the design:
+
+- **Not authentication.** `X-User-Id` is a browser-local demo identity, clearly labelled as such in
+  the UI. It would be the first thing to replace with a real identity provider.
+- **Not exactly-once.** Delivery is at-least-once with idempotent consumers; the README and ADR 0009
+  never claim otherwise.
+- **Not a horizontally-scaled deployment.** k3d runs two Booking replicas to prove the Redis rate
+  limit is shared and that probes distinguish liveness from readiness, but the database and the
+  broker are single instances with no failover story.
+- **Not measured beyond this machine.** The k6 numbers describe one i5-10400F host; there is no soak
+  test, no multi-host run and no capacity claim ([`docs/performance`](docs/performance/README.md)).
+- **Not a production payment integration.** The provider is a deterministic HTTP double whose
+  outcome depends on the amount, so tests and demos need no shared switch.
+- **Out of scope by design:** Kafka, Event Sourcing, Keycloak, a service mesh and a cloud deployment.
+
 ## Roadmap
 
 | Phase | Scope                                    | Status      |
@@ -455,10 +592,14 @@ compose.yaml          Infrastructure (profile: core) and the images (profile: ap
 | 5     | Frontend: React SPA, Redis waiting room     | done        |
 | 6     | Deployment: Compose and k3d                | done        |
 | 7     | Observability: Prometheus, Grafana, OTEL   | done        |
-| 8     | Portfolio: k6, CI, ADRs, demo              | pending     |
+| 8     | Portfolio: k6, CI, ADRs, demo              | done        |
 
 ## Documentation
 
 - `EVENTFLOW_HANDOFF.md` — project index and non-negotiable invariants
 - `docs/01-arquitectura.md` … `docs/07-opencode.md` — product specification
-- `docs/adr/` — architecture decision records
+- [`docs/adr/README.md`](docs/adr/README.md) — every architecture decision record, indexed
+- [`docs/performance/README.md`](docs/performance/README.md) — the k6 scenarios, the runner and the
+  measured results
+- `odd/tasks/` — one document per phase: specs, tasks, evidence and the decisions taken while building
+  it
