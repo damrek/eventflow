@@ -4,6 +4,11 @@ Every record states the context, the decision and the consequences, and the ones
 say so explicitly. ADRs are not a history of what was convenient: a rejected alternative appears
 because it was on the table.
 
+Three records carry the spine of the design and are the fastest way in: [0006](0006-booking-inventory-concurrency.md)
+for the stock invariant, [0009](0009-messaging-outbox-inbox-dlq.md) for the messaging contract and
+[0010](0010-payment-saga.md) for the payment saga. The table is ordered by phase; read it as a map,
+not as a sequence.
+
 | ADR | Decision | Phase |
 | --- | --- | --- |
 | [0001](0001-version-stack.md) | Version stack and build baseline: JDK 21, Spring Boot 4.2, Gradle wrapper, pinned versions verified before use | 0 |

@@ -10,6 +10,32 @@ is backed by a test you can run, not by an adjective.
 Redis waiting room, Deployment (Compose and k3d), Observability (Prometheus, Grafana, OpenTelemetry,
 Tempo) and Portfolio (CI, k6, ADRs, README).
 
+## Quick path
+
+Docker is the only prerequisite. This builds every image, starts the whole system and then runs the
+documented flow against it, asserting each state:
+
+```bash
+cp .env.example .env
+./scripts/stack-up.sh      # build and start profiles "core" and "app", wait for every healthcheck
+./scripts/demo.sh          # the same flow as a narrated walkthrough, asserting every state
+```
+
+The SPA answers on `http://localhost:8080`, and the host is the only one who can reach it: the front
+door binds `127.0.0.1`, like every other published port in the stack.
+
+Where to go next, depending on what you are here for:
+
+| If you want to know | Read |
+| --- | --- |
+| Why the design looks like this | [The problem it solves](#the-problem-it-solves) |
+| Whether the claims hold, and how to run the proof | [How each claim is proven](#how-each-claim-is-proven) |
+| How a booking actually travels | [Event flow](#event-flow) |
+| How to run it from source, one service per terminal | [Quick start](#quick-start) |
+
+Everything that only matters once you are running it — the containers, the observability stack, the
+cluster, seeding and troubleshooting — sits below in collapsible sections.
+
 ## The problem it solves
 
 A concert hall has 300 seats and a marketing campaign that sends 10,000 people to the same page at
@@ -207,9 +233,12 @@ A service that is already healthy on its port is reused and not touched by `dev-
 
 ### Run the whole system in containers
 
-The same system also runs as images, with no Gradle or Node process on the host. Only the front
-door publishes a port, and nginx performs the same `/api/*` prefix rewrite Vite does in
-development:
+<details>
+<summary>The image build, the four scripts, and what each one is for</summary>
+
+The same system also runs as images, with no Gradle or Node process on the host. Only the front door
+publishes a port, and it binds `127.0.0.1` like every other published port; nginx performs the same
+`/api/*` prefix rewrite Vite does in development:
 
 ```bash
 ./scripts/stack-up.sh      # build and start profiles "core" and "app", wait for every healthcheck
@@ -223,7 +252,12 @@ Everything is served from `http://localhost:8080`: the SPA at `/`, and `/api/cat
 port. The images are `eventflow/<service>:${EVENTFLOW_TAG:-local}`, built by
 `docker/service.Dockerfile` (`ARG SERVICE`) and `frontend/Dockerfile` (ADR 0013).
 
+</details>
+
 ### Observability (metrics, dashboards, traces)
+
+<details>
+<summary>Four dashboards, the meters, one trace per booking, and what the phase gate asserts</summary>
 
 The same system with Prometheus, Grafana, an OpenTelemetry collector and Tempo, as a Compose
 profile. Traces are exported only in this stack, because it is the only one with a collector:
@@ -253,7 +287,12 @@ the HTTP latency buckets exist, that one Tempo trace links the Booking request t
 consumer, that the four dashboards are loaded, and that Booking's JSON log line carries that same
 trace id.
 
+</details>
+
 ### Kubernetes (k3d)
+
+<details>
+<summary>The self-contained cluster: two Booking replicas, differentiated probes, ingress on 127.0.0.1:8090</summary>
 
 The cluster deployment is self-contained — PostgreSQL, RabbitMQ and Redis run inside it, so nothing
 from the Compose stack is reused — and it is where the differentiated probes, the resource limits
@@ -273,7 +312,12 @@ Requires `k3d` and `kubectl` on `PATH`. The ingress answers on `http://localhost
 and liveness never does. Credentials come from `.env`: `k3d-up.sh` creates the `eventflow-secrets`
 Secret, so no credential is committed.
 
+</details>
+
 ### Seed a demo event
+
+<details>
+<summary>The curl calls that create a venue, publish an event and wait for its inventory</summary>
 
 The SPA lists only `PUBLISHED` events, and Booking provisions its inventory from `EventPublished`.
 With the services running:
@@ -290,9 +334,25 @@ curl -sS localhost:8082/api/events/$EVENT/availability   # after the event reach
 
 `jq` only extracts the ids; copy them from the JSON response if you prefer.
 
-The SPA talks to its own origin: Vite proxies `/api/catalog` → `:8081`, `/api/booking` → `:8082`
-and `/api/notification` → `:8083` in both `dev` and `preview`, so no CORS configuration is needed
-(ADR 0012). `npm run build` produces the static bundle in `frontend/dist`.
+</details>
+
+### Ports, UIs and health endpoints
+
+<details>
+<summary>Swagger, OpenAPI, Actuator and the RabbitMQ management UI</summary>
+
+- Swagger UI: `http://localhost:8081/swagger-ui.html`, `:8082`, `:8083`
+- OpenAPI JSON: `http://localhost:8081/v3/api-docs`, `:8082`, `:8083`
+- Health: `http://localhost:8081/actuator/health`, `:8082`, `:8083`, `:8084`, `:8085`
+  (`/actuator/health/liveness` and `/actuator/health/readiness` are the probe paths)
+- RabbitMQ management UI: http://localhost:15672 (`eventflow` / `eventflow`)
+
+</details>
+
+### Repair an existing database volume
+
+<details>
+<summary><code>database "notification_db" does not exist</code> after an earlier phase</summary>
 
 One PostgreSQL instance hosts one database per service (`catalog_db`, `booking_db`,
 `notification_db`, `payment_db`). A fresh volume gets all four from
@@ -306,11 +366,7 @@ docker compose exec -T postgres sh /docker-entrypoint-initdb.d/01-create-databas
 
 The script is idempotent: it only creates what is absent.
 
-- Swagger UI: `http://localhost:8081/swagger-ui.html`, `:8082`, `:8083`
-- OpenAPI JSON: `http://localhost:8081/v3/api-docs`, `:8082`, `:8083`
-- Health: `http://localhost:8081/actuator/health`, `:8082`, `:8083`, `:8084`, `:8085`
-  (`/actuator/health/liveness` and `/actuator/health/readiness` are the probe paths)
-- RabbitMQ management UI: http://localhost:15672 (`eventflow` / `eventflow`)
+</details>
 
 ## Tests
 
@@ -361,6 +417,9 @@ Errors use `application/problem+json` (RFC 9457) with `code` and `traceId` exten
 
 ### Example
 
+<details>
+<summary>Create a venue, create an event in <code>DRAFT</code>, publish it</summary>
+
 ```bash
 curl -s -X POST localhost:8081/api/venues -H 'Content-Type: application/json' -d '{
   "name": "Arena Sur", "address": "Calle 1, Madrid", "capacity": 5000
@@ -378,6 +437,8 @@ curl -s -X POST localhost:8081/api/events -H 'Content-Type: application/json' -d
 
 curl -s -X POST localhost:8081/api/events/<event-id>/publish
 ```
+
+</details>
 
 ## API (Booking)
 
@@ -406,6 +467,9 @@ Booking never learns an offering over HTTP: publishing the event in Catalog writ
 `EventPublished` to the outbox, the relay publishes it, and Booking's consumer provisions the
 inventory (ADR 0009). Give the broker a second to deliver before reserving.
 
+<details>
+<summary>A full walkthrough: publish, join the queue, hold units, read availability</summary>
+
 ```bash
 # Publish in Catalog first; Booking provisions inventory from EventPublished.
 curl -s -X POST localhost:8081/api/events/<event-id>/publish
@@ -426,6 +490,8 @@ curl -s -X POST localhost:8082/api/reservations \
 
 curl -s localhost:8082/api/events/$EVENT/availability
 ```
+
+</details>
 
 ### Waiting room (Redis)
 
@@ -455,9 +521,13 @@ it.
 
 The demo user id lives in `localStorage` and is sent as `X-User-Id`; it is not authentication. No
 confirmation is simulated: every status comes from Booking and the mailbox from Notification.
-Commands: `npm ci`, `npm run dev`, `npm test`, `npm run build`, `npm run preview` (the preview
-keeps the same proxy). Versions are pinned in `frontend/package.json` and
-`frontend/package-lock.json` (ADR 0012).
+
+The SPA talks to its own origin: Vite proxies `/api/catalog` → `:8081`, `/api/booking` → `:8082`
+and `/api/notification` → `:8083` in both `dev` and `preview`, so no CORS configuration is needed
+(ADR 0012). `npm run build` produces the static bundle in `frontend/dist`.
+
+Commands: `npm ci`, `npm run dev`, `npm test`, `npm run build`, `npm run preview`. Versions are
+pinned in `frontend/package.json` and `frontend/package-lock.json` (ADR 0012).
 
 ## Payment (internal) and its simulator
 
@@ -524,6 +594,9 @@ Booking ──outbox──▶ eventflow.events ──▶ payment.payment-request
 
 ## Repository layout
 
+<details>
+<summary>Every module, slice and script, one line each</summary>
+
 ```
 services/catalog/     Catalog service (venues, events, ticket types, publication)
   src/main/java/com/eventflow/catalog/
@@ -571,6 +644,8 @@ deploy/observability/ Prometheus, Grafana (dashboards as code), collector and Te
 .github/workflows/    CI: frontend gates, the full Gradle suite and the six images
 compose.yaml          Infrastructure (profile: core) and the images (profile: app)
 ```
+
+</details>
 
 ## Conventions
 

@@ -4,6 +4,11 @@ Two k6 scenarios, the command that runs them, and the numbers one machine actual
 raw result object of every recorded run is committed under `results/`, so a published number can
 always be traced back to a command and an environment.
 
+**Recorded on this machine:** `read-path` finished with 0 % failed requests, avg 2.0 ms and p95
+2.3 ms at 20 iterations/s; `reservation-contention` created exactly 50 holds and refused 150 of 200
+attempts with no other answer, leaving `available + held + sold = capacity`. The sections below say
+how to reproduce them, and what they do not prove.
+
 Load testing is not part of CI: it needs a running stack and a quiet machine, and a PR pipeline that
 measures performance would produce numbers nobody can compare (`docs/06-roadmap-calidad.md`).
 
