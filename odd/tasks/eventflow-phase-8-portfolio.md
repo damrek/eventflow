@@ -128,7 +128,10 @@
 - **T4 — ADR 0008 and the ADR index** (S4). Route: inline. Done: `1d653a7`.
 - **T5 — README as portfolio document** (S5). Route: inline. Done: `94082a6`.
 - **T6 — `scripts/demo.sh` and screenshots** (S6). Route: inline. Done: `94082a6`.
-- **T7 — Close-out and independent verification** (S7). Route: inline + one verifier. In progress.
+- **T7 — Close-out and independent verification** (S7). Route: inline + one verifier. Done:
+  `815f58f` (close-out), `15dad95` (the four blockers and the advisories the verifier found), and the
+  commit that records the verdict. Verifier's first pass: met S2/S4/S7, partially met S1/S3/S5/S6;
+  after L12 the blockers are closed and the evidence is the one quoted there.
 
 ## Log
 
