@@ -9,6 +9,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.eventflow.booking.inventory.EventInventoryRepository;
 import com.eventflow.booking.shared.messaging.EventPublisher;
+import com.eventflow.booking.shared.metrics.BookingMetrics;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -30,6 +31,7 @@ public class ReservationPaymentService {
     private final EventInventoryRepository inventory;
     private final EventPublisher publisher;
     private final Clock clock;
+    private final BookingMetrics metrics;
 
     @Transactional
     public void authorized(UUID reservationId, UUID paymentId) {
@@ -43,6 +45,7 @@ public class ReservationPaymentService {
             reservation.recordPayment(paymentId);
             reservation.confirm(now);
             ReservationInventory.confirmAll(inventory, reservation);
+            metrics.confirmed();
             publisher.publish(
                     PaymentEventPayload.CONFIRMED,
                     PaymentEventPayload.CONFIRMED_ROUTING_KEY,

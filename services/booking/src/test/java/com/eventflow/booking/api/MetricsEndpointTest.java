@@ -37,4 +37,15 @@ class MetricsEndpointTest extends BookingIntegrationTest {
                 .andExpect(content().contentTypeCompatibleWith("text/plain"))
                 .andExpect(content().string(containsString("jvm_memory_used_bytes")));
     }
+
+    @Test
+    void publishesTheDocumentedBusinessMeters() throws Exception {
+        mockMvc.perform(get("/actuator/prometheus"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("booking_attempts_total")))
+                .andExpect(content().string(containsString("booking_confirmed_total")))
+                .andExpect(content().string(containsString("booking_conflicts_total")))
+                .andExpect(content().string(containsString("booking_expired_total")))
+                .andExpect(content().string(containsString("waiting_room_users")));
+    }
 }

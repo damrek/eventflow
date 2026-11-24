@@ -67,6 +67,9 @@ class WaitingRoomIntegrationTest extends BookingIntegrationTest {
     @Autowired
     private JsonMapper jsonMapper;
 
+    @Autowired
+    private io.micrometer.core.instrument.MeterRegistry registry;
+
     private final UUID eventId = UUID.randomUUID();
     private final UUID general = UUID.randomUUID();
 
@@ -176,6 +179,21 @@ class WaitingRoomIntegrationTest extends BookingIntegrationTest {
     }
 
     @Test
+    void exposesTheQueuedUsersGauge() throws Exception {
+        provision(5);
+        assertThat(queuedUsers()).isZero();
+
+        join(USER);
+        join(OTHER_USER);
+        assertThat(queuedUsers()).isEqualTo(2);
+
+        dispatcher.dispatch();
+        assertThat(queuedUsers())
+                .as("this class admits one user per tick, so an admitted user leaves the queue")
+                .isEqualTo(1);
+    }
+
+    @Test
     void gateIsOffWhenTheEventHasNoQueue() throws Exception {
         provision(5);
 
@@ -183,6 +201,10 @@ class WaitingRoomIntegrationTest extends BookingIntegrationTest {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.status").value("HELD"));
         assertThat(available()).isEqualTo(4);
+    }
+
+    private double queuedUsers() {
+        return registry.find("waiting.room.users").gauge().value();
     }
 
     private JsonNode join(String user) throws Exception {

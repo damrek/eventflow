@@ -16,6 +16,8 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
+
+import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.test.context.jdbc.Sql;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
@@ -52,6 +54,9 @@ class ReservationExpiryTest extends BookingIntegrationTest {
     @Autowired
     private InventoryService inventory;
 
+    @Autowired
+    private MeterRegistry registry;
+
     private final UUID eventId = UUID.randomUUID();
     private final UUID general = UUID.randomUUID();
 
@@ -61,7 +66,10 @@ class ReservationExpiryTest extends BookingIntegrationTest {
         String reservationId = createReservation(3);
         makeDue(reservationId);
 
+        double expired = registry.find("booking.expired").counter().count();
+
         assertThat(worker.expireDue()).isEqualTo(1);
+        assertThat(registry.find("booking.expired").counter().count()).isEqualTo(expired + 1);
 
         mockMvc.perform(get("/api/reservations/{id}", reservationId).header("X-User-Id", ApiFixtures.USER))
                 .andExpect(status().isOk())

@@ -22,6 +22,9 @@ import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
+
 import com.eventflow.payment.payment.PaymentEvents;
 import com.eventflow.payment.payment.PaymentTopology;
 import com.eventflow.payment.shared.messaging.MessagingProperties;
@@ -49,6 +52,9 @@ class PaymentConsumerTest extends PaymentIntegrationTest {
 
     @Autowired
     private MessagingProperties messaging;
+
+    @Autowired
+    private MeterRegistry registry;
 
     private final UUID reservationId = UUID.randomUUID();
     private final UUID eventId = UUID.randomUUID();
@@ -88,6 +94,7 @@ class PaymentConsumerTest extends PaymentIntegrationTest {
     @Test
     void rejectsThePaymentAndPublishesTheResult() {
         PROVIDER.script(FakePaymentProvider.Response.REJECTED);
+        double rejected = failures("REJECTED");
 
         sendPaymentRequested(UUID.randomUUID(), new BigDecimal("5.00"));
 
@@ -105,6 +112,7 @@ class PaymentConsumerTest extends PaymentIntegrationTest {
                         String.class,
                         reservationId))
                 .isEqualTo("Simulated decline");
+        assertThat(failures("REJECTED")).isEqualTo(rejected + 1);
     }
 
     @Test
@@ -126,6 +134,7 @@ class PaymentConsumerTest extends PaymentIntegrationTest {
     @Test
     void providerTimeoutSpendsTheRetriesAndEndsInTheDeadLetterQueue() {
         PROVIDER.always(FakePaymentProvider.Response.SLOW);
+        double timeouts = failures("TIMEOUT");
 
         sendPaymentRequested(UUID.randomUUID(), new BigDecimal("110.00"));
 
@@ -136,6 +145,9 @@ class PaymentConsumerTest extends PaymentIntegrationTest {
         assertThat(countOutbox(PaymentEvents.AUTHORIZED)).isZero();
         assertThat(countOutbox(PaymentEvents.REJECTED)).isZero();
         assertThat(PROVIDER.calls()).isGreaterThanOrEqualTo(1);
+        assertThat(failures("TIMEOUT"))
+                .as("a provider that never answers is counted as a timeout on every attempt")
+                .isGreaterThan(timeouts);
     }
 
     @Test
@@ -163,6 +175,11 @@ class PaymentConsumerTest extends PaymentIntegrationTest {
                 amqpAdmin.getQueueInfo(DEAD_LETTER_QUEUE).getMessageCount()).isEqualTo(1));
 
         assertThat(paymentCount()).isZero();
+    }
+
+    private double failures(String reason) {
+        Counter counter = registry.find("payment.failures").tag("reason", reason).counter();
+        return counter == null ? 0 : counter.count();
     }
 
     private void sendPaymentRequested(UUID envelopeId, BigDecimal amount) {

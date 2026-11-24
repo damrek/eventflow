@@ -24,6 +24,8 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
+
+import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.test.context.jdbc.Sql;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
@@ -70,6 +72,9 @@ class PaymentSagaIntegrationTest extends BookingIntegrationTest {
 
     @Autowired
     private AmqpAdmin amqpAdmin;
+
+    @Autowired
+    private MeterRegistry registry;
 
     private final UUID eventId = UUID.randomUUID();
     private final UUID general = UUID.randomUUID();
@@ -137,9 +142,11 @@ class PaymentSagaIntegrationTest extends BookingIntegrationTest {
         String reservationId = createReservation(2);
         checkout(reservationId);
 
+        double confirmed = registry.find("booking.confirmed").counter().count();
         sendAuthorized(UUID.randomUUID(), UUID.fromString(reservationId));
 
         await().atMost(20, SECONDS).untilAsserted(() -> assertThat(reservationStatus(reservationId)).isEqualTo("CONFIRMED"));
+        assertThat(registry.find("booking.confirmed").counter().count()).isEqualTo(confirmed + 1);
         assertThat(available()).isEqualTo(8);
         assertThat(held()).isZero();
         assertThat(sold()).isEqualTo(2);

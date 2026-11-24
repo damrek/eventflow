@@ -9,6 +9,7 @@ import org.springframework.transaction.annotation.Transactional;
 import com.eventflow.payment.provider.PaymentGateway;
 import com.eventflow.payment.provider.ProviderAuthorizationRequest;
 import com.eventflow.payment.provider.ProviderAuthorizationResponse;
+import com.eventflow.payment.provider.ProviderUnavailableException;
 import com.eventflow.payment.shared.messaging.EventPublisher;
 
 import lombok.RequiredArgsConstructor;
@@ -33,6 +34,7 @@ public class PaymentService {
     private final PaymentGateway gateway;
     private final EventPublisher publisher;
     private final Clock clock;
+    private final PaymentMetrics metrics;
 
     @Transactional
     public void requestPayment(PaymentRequestedPayload request) {
@@ -53,8 +55,16 @@ public class PaymentService {
         }
 
         long started = System.nanoTime();
-        ProviderAuthorizationResponse response = gateway.authorize(new ProviderAuthorizationRequest(
-                payment.getId(), payment.getReservationId(), payment.getAmount(), payment.getCurrency()));
+        ProviderAuthorizationResponse response;
+        try {
+            response = gateway.authorize(new ProviderAuthorizationRequest(
+                    payment.getId(), payment.getReservationId(), payment.getAmount(), payment.getCurrency()));
+        } catch (ProviderUnavailableException unavailable) {
+            metrics.failure(timeout(unavailable)
+                    ? PaymentMetrics.FailureReason.TIMEOUT
+                    : PaymentMetrics.FailureReason.ERROR);
+            throw unavailable;
+        }
         long latencyMs = (System.nanoTime() - started) / 1_000_000;
         Instant now = clock.instant();
         int attemptNumber = attempts.lastAttemptNumber(payment.getId()) + 1;
@@ -79,6 +89,7 @@ public class PaymentService {
             return;
         }
 
+        metrics.failure(PaymentMetrics.FailureReason.REJECTED);
         payment.reject(response.reason(), now);
         attempts.save(PaymentAttempt.record(
                 payment,
@@ -122,6 +133,22 @@ public class PaymentService {
         payment.refund(clock.instant());
         log.info("Refunded payment {} for reservation {}: {}",
                 payment.getId(), payment.getReservationId(), request.reason());
+    }
+
+    /**
+     * A read timeout reaches this service as a {@link ProviderUnavailableException} wrapping the
+     * HTTP client's failure; the cause chain is the only place that distinguishes "the provider
+     * never answered" from "the provider answered badly".
+     */
+    private static boolean timeout(Throwable failure) {
+        for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
+            if (cause instanceof java.net.SocketTimeoutException
+                    || cause instanceof java.net.http.HttpTimeoutException
+                    || (cause instanceof java.util.concurrent.TimeoutException)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static void validate(PaymentRequestedPayload request) {
