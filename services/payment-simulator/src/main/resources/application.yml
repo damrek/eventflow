@@ -14,7 +14,9 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        # prometheus is scraped by Prometheus on the internal Compose network; it is never
+        # published through the front door.
+        include: health,info,prometheus
   # The simulator owns no database and no broker, so the default liveness and readiness groups
   # (Boot 4.2 enables both) already describe it: the application state alone.
 

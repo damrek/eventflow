@@ -15,6 +15,8 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-validation")
     // Actuator is what the Compose healthcheck and the Kubernetes probes call.
     implementation("org.springframework.boot:spring-boot-starter-actuator")
+    // Prometheus scrape endpoint (S1 of Phase 7); the version comes from the Boot BOM.
+    implementation("io.micrometer:micrometer-registry-prometheus")
 
     compileOnly("org.projectlombok:lombok")
     annotationProcessor("org.projectlombok:lombok")

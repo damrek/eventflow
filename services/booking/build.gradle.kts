@@ -18,6 +18,8 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-flyway")
     implementation("org.springframework.boot:spring-boot-starter-validation")
     implementation("org.springframework.boot:spring-boot-starter-actuator")
+    // Prometheus scrape endpoint (S1 of Phase 7); the version comes from the Boot BOM.
+    implementation("io.micrometer:micrometer-registry-prometheus")
     implementation("org.springframework.boot:spring-boot-starter-rabbitmq")
     // Redis is the waiting room, admission tokens and distributed rate limiting (ADR 0011).
     implementation("org.springframework.boot:spring-boot-starter-data-redis")
