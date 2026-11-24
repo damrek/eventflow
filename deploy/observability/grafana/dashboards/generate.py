@@ -65,7 +65,9 @@ def dashboard(uid, title, panels, description):
         "description": description,
         "tags": ["eventflow"],
         "timezone": "browser",
-        "editable": True,
+        # Read-only in the UI: a change belongs in this script and a commit (A3 of the phase 7
+        # verification: the provisioning flag stops saving, this stops editing).
+        "editable": False,
         "schemaVersion": 39,
         "version": 1,
         "refresh": "10s",

@@ -44,8 +44,10 @@ Compose only; k3d keeps exactly what Phase 6 proved.
    (`management.opentelemetry.tracing.export.otlp.endpoint`, not the Boot 3
    `management.otlp.tracing.endpoint`). Export is off by default (`OTEL_TRACES_ENABLED`), so a
    `bootRun` or the test suite creates and propagates spans without posting them to a collector that
-   does not exist; `scripts/observability-up.sh` turns it on. Sampling is `1.0` **for the local
-   stack only** — a production deployment would lower it and say so.
+   does not exist; `scripts/observability-up.sh` turns it on. Sampling is `1.0` and lives in every
+   service's configuration, including the k3d stack: with export off nothing is posted, so the
+   setting costs nothing there, but a deployment that turns export on must lower it first. That is
+   an intent the property documents, not something the build enforces.
 3. **AMQP propagation is enabled, not reinvented.** `spring.rabbitmq.template.observation-enabled`
    and `spring.rabbitmq.listener.simple.observation-enabled` are both `true` (they default to
    `false`). `spring-rabbit 4.0.6`'s `RabbitMessageSenderContext`/`RabbitMessageReceiverContext`

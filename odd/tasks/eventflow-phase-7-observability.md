@@ -29,7 +29,8 @@
     claim succeeds and before the units are held (so a conflict still counts as an attempt, and an
     idempotent replay does not).
   - `booking_conflicts_total` — one increment per creation refused for insufficient tickets
-    (the `409` path).
+    (the stock-refusal path; the API answers `422 Unprocessable Content` with
+    `INSUFFICIENT_TICKETS`, not `409` — corrected in L17).
   - `booking_confirmed_total` — one increment per reservation confirmed from a payment result.
   - `booking_expired_total` — one increment per reservation expired by the expiry worker.
   - `payment_failures_total` — one increment per authorization that ends rejected, timed out or
@@ -64,7 +65,8 @@
     `traceparent = null` still publishes.
 - **S4 — Structured JSON logs.** Every service sets `logging.structured.format.console: ecs`, so
   stdout is one JSON object per line carrying `service.name` (from `spring.application.name`),
-  `trace.id`, `span.id` and the MDC. Booking's payment-result listener and Notification's consumer
+  the MDC (Boot's ECS encoder renders `traceId` and `spanId` as top-level members, not `trace.id` —
+  corrected in L17) and the ids this project adds. Booking's payment-result listener and Notification's consumer
   put `reservationId` and `eventId` in the MDC for the duration of the handler and clear them
   afterwards, so a log line ties a message to its reservation. No sensitive data is logged.
   - Test: a unit test of the MDC scope (present inside the handler, absent after, and absent when
@@ -217,3 +219,25 @@
   passes (the Phase 6 invariants are untouched). Receipt-driven development is off in this clone
   (`gentle-ai review mode status` → `off`, decided by global), so this phase is verified by its own
   suites, the end-to-end script and one independent verifier, not by a native review.
+- **L17 (2026-11-24, independent verification):** `gentle-ai-verify` read the whole document and the
+  branch, ran its own probes and returned **met for S1–S7 with zero blockers**. It confirmed the
+  chain by decoding Tiempo's parent ids (trace id constant, parent advancing), the meter deltas
+  (one attempt/one confirmation per flow, replay adds nothing, no high-cardinality tag), the scrape
+  isolation (no published service port, `/actuator/prometheus` unreachable from the host), 94/94
+  Booking log lines parsing as JSON with `traceId`/`requestId`/`eventId`/`reservationId`, 31/31
+  dashboard panel targets returning series, and that `generate.py` reproduces the committed JSON.
+  Advisories actioned: the spec's "409" is the 422 path (corrected in S2); the ECS encoder emits
+  `traceId`/`spanId`, not `trace.id` (corrected in S4); a provisioned dashboard was still
+  *editable* in the UI (`editable` was `true` in the JSON) — the generator now writes
+  `"editable": false`, so the ADR sentence is true and Grafana reloads it. The sampling note in
+  ADR 0014 now says plainly that `1.0` sits in every configuration and that export, not sampling,
+  is what the observability stack adds.
+- **L18 (2026-11-24, durable probes adopted):** the verifier's probes became regression tests
+  instead of a one-off: `BusinessMetersContractTest` and `PaymentMetricsContractTest` pin "one
+  increment per call and no tag" on a `SimpleMeterRegistry`; `PaymentResultListenerMdcTest` proves
+  the listener itself is wired to `EventLogContext` (and clears the ids when the handler throws);
+  `OutboxTraceTest` now also asserts the relay hop **advances the parent id** instead of copying the
+  stored header; and `scripts/observability-invariants-test.sh` (80 static checks over S1–S6) fails
+  when a dependency, the endpoint exposure, the histogram flag, a migration, a pinned image, a
+  loopback-only port, a scrape target, a dashboard uid or the `FLOW_START` guard is removed — the
+  same shape as Phase 6's `deployment-invariants-test.sh`.

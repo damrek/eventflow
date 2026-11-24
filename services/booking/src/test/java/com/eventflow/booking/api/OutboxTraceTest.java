@@ -115,9 +115,12 @@ class OutboxTraceTest extends BookingIntegrationTest {
         assertThat(published)
                 .as("the broker receives a W3C traceparent")
                 .matches(W3C_TRACEPARENT);
-        assertThat(traceIdOf(published))
+        assertThat(field(published, 1))
                 .as("the hop stays inside the trace stored with the row")
-                .isEqualTo(traceIdOf(stored));
+                .isEqualTo(field(stored, 1));
+        assertThat(field(published, 2))
+                .as("the relay hop is a new parent, not a verbatim copy of the stored header")
+                .isNotEqualTo(field(stored, 2));
     }
 
     @Test
@@ -136,8 +139,8 @@ class OutboxTraceTest extends BookingIntegrationTest {
     }
 
     /** W3C layout: {@code 00-<trace id>-<parent id>-<flags>}; the hop advances the parent id only. */
-    private static String traceIdOf(String traceparent) {
-        return traceparent.split("-")[1];
+    private static String field(String traceparent, int index) {
+        return traceparent.split("-")[index];
     }
 
     private String createReservation() throws Exception {
