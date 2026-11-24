@@ -78,7 +78,8 @@ export function EventListPage() {
             Previous page
           </Button>
           <p className="text-sm text-slate-600">
-            Page {query.data.page + 1} of {query.data.totalPages} · {query.data.totalElements} events
+            Page {query.data.page + 1} of {query.data.totalPages} · {query.data.totalElements}{" "}
+            events
           </p>
           <Button
             variant="secondary"

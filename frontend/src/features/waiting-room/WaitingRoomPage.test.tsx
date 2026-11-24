@@ -62,11 +62,9 @@ describe("waiting room", () => {
     expect(await screen.findByText(/Position 2 · 5 waiting/)).toBeInTheDocument();
     expect(statusCalls).toBe(1);
 
-    await waitFor(
-      () =>
-        expect(screen.getByTestId("location")).toHaveTextContent(RESERVE_ROUTE),
-      { timeout: 8000 },
-    );
+    await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent(RESERVE_ROUTE), {
+      timeout: 8000,
+    });
 
     const joinCalls = backend.callsTo("POST", JOIN_PATH);
     expect(joinCalls).toHaveLength(1);
@@ -90,7 +88,9 @@ describe("waiting room", () => {
     renderWaitingRoom();
 
     expect(await screen.findByText(/Position 4 · 5 waiting/)).toBeInTheDocument();
-    expect(await screen.findByText(/Position 3 · 5 waiting/, {}, { timeout: 6000 })).toBeInTheDocument();
+    expect(
+      await screen.findByText(/Position 3 · 5 waiting/, {}, { timeout: 6000 }),
+    ).toBeInTheDocument();
   }, 20_000);
 
   it("offers the direct reservation path when the waiting room answers 503", async () => {
@@ -98,8 +98,7 @@ describe("waiting room", () => {
       {
         method: "POST",
         path: JOIN_PATH,
-        handler: () =>
-          problem(503, "WAITING_ROOM_UNAVAILABLE", "The waiting room is unavailable"),
+        handler: () => problem(503, "WAITING_ROOM_UNAVAILABLE", "The waiting room is unavailable"),
       },
     ]);
 

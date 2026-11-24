@@ -24,7 +24,10 @@ export function ErrorState({
 }: ErrorStateProps) {
   const apiError = toApiError(error);
   return (
-    <div role="alert" className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-900">
+    <div
+      role="alert"
+      className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-900"
+    >
       <p className="font-semibold">{title}</p>
       <p className="mt-1">{apiError.detail}</p>
       <p className="mt-1 text-xs text-rose-700">

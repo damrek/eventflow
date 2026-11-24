@@ -42,7 +42,12 @@ export interface ReservationPanelProps {
   onRetry?: () => void;
 }
 
-export function ReservationPanel({ reservation, userId, ticketNames, onRetry }: ReservationPanelProps) {
+export function ReservationPanel({
+  reservation,
+  userId,
+  ticketNames,
+  onRetry,
+}: ReservationPanelProps) {
   const { checkout, cancel } = useReservationActions(userId);
   const actionError = checkout.error ?? cancel.error;
   const terminal = isTerminalReservationStatus(reservation.status);

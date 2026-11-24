@@ -22,10 +22,7 @@ export function readReservationIds(): string[] {
 export function rememberReservationId(reservationId: string): void {
   const ids = readReservationIds();
   if (ids.includes(reservationId)) return;
-  window.localStorage.setItem(
-    RESERVATION_IDS_STORAGE_KEY,
-    JSON.stringify([reservationId, ...ids]),
-  );
+  window.localStorage.setItem(RESERVATION_IDS_STORAGE_KEY, JSON.stringify([reservationId, ...ids]));
   window.dispatchEvent(new Event(RESERVATION_IDS_CHANGED));
 }
 

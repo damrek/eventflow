@@ -37,7 +37,9 @@ describe("ticket selection validation", () => {
     await setQuantity("VIP", "11");
     await submit();
 
-    expect(await screen.findByText("Choose at most 10 tickets per ticket type")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Choose at most 10 tickets per ticket type"),
+    ).toBeInTheDocument();
     expect(screen.getByTestId("location")).toHaveTextContent("/");
   });
 

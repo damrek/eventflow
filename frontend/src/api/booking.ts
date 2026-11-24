@@ -27,12 +27,7 @@ export interface WaitingRoom {
 }
 
 export type ReservationStatus =
-  | "HELD"
-  | "PENDING_PAYMENT"
-  | "CONFIRMED"
-  | "PAYMENT_FAILED"
-  | "EXPIRED"
-  | "CANCELLED";
+  "HELD" | "PENDING_PAYMENT" | "CONFIRMED" | "PAYMENT_FAILED" | "EXPIRED" | "CANCELLED";
 
 export interface ReservationItem {
   ticketTypeId: string;
@@ -123,5 +118,10 @@ export function isWaitingRoomUnavailable(error: unknown): boolean {
 }
 
 export function isTerminalReservationStatus(status: ReservationStatus): boolean {
-  return status === "CONFIRMED" || status === "PAYMENT_FAILED" || status === "EXPIRED" || status === "CANCELLED";
+  return (
+    status === "CONFIRMED" ||
+    status === "PAYMENT_FAILED" ||
+    status === "EXPIRED" ||
+    status === "CANCELLED"
+  );
 }

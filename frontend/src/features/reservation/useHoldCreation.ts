@@ -25,9 +25,21 @@ interface UseHoldCreationOptions {
   enabled: boolean;
 }
 
+interface CreationResult {
+  /** The request this answer belongs to, so a stale answer never describes the current attempt. */
+  forRequest: string;
+  state: Exclude<HoldState, { status: "creating" | "idle" }>;
+}
+
+const IDLE: HoldState = { status: "idle", reservation: null, error: null };
+const CREATING: HoldState = { status: "creating", reservation: null, error: null };
+
 /**
  * Creates the hold exactly once per attempt with one `Idempotency-Key`. `retry` mints a new key:
  * after a terminal state the previous reservation must not be reused.
+ *
+ * The pending state is derived during render from the attempt in flight instead of being set from
+ * the effect body, so an attempt never renders as `creating` for a request that has not left yet.
  */
 export function useHoldCreation({
   eventId,
@@ -43,30 +55,38 @@ export function useHoldCreation({
     idempotencyKey.current = randomUuid();
   }
   const [generation, setGeneration] = useState(0);
-  const [state, setState] = useState<HoldState>({ status: "idle", reservation: null, error: null });
+  const [result, setResult] = useState<CreationResult | null>(null);
+  const forRequest = `${generation}|${eventId}|${userId}|${itemsKey}|${admissionToken ?? ""}`;
+  const state: HoldState =
+    result?.forRequest === forRequest ? result.state : enabled ? CREATING : IDLE;
 
   useEffect(() => {
     if (!enabled) return;
     let cancelled = false;
     const key = idempotencyKey.current ?? randomUuid();
     idempotencyKey.current = key;
-    setState({ status: "creating", reservation: null, error: null });
 
     createReservation({ eventId, userId, idempotencyKey: key, admissionToken, items })
       .then((reservation) => {
         if (cancelled) return;
         queryClient.setQueryData(queryKeys.reservation(reservation.reservationId), reservation);
-        setState({ status: "created", reservation, error: null });
+        setResult({
+          forRequest,
+          state: { status: "created", reservation, error: null },
+        });
       })
       .catch((error: unknown) => {
         if (cancelled) return;
-        setState({ status: "error", reservation: null, error: toApiError(error) });
+        setResult({
+          forRequest,
+          state: { status: "error", reservation: null, error: toApiError(error) },
+        });
       });
 
     return () => {
       cancelled = true;
     };
-  }, [enabled, generation, eventId, userId, itemsKey, admissionToken, items, queryClient]);
+  }, [enabled, eventId, userId, itemsKey, admissionToken, items, queryClient, forRequest]);
 
   const retry = useCallback(() => {
     // After a terminal state the previous reservation must not be reused.
