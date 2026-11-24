@@ -187,8 +187,10 @@ try:
     step("Grafana: dashboards as code")
     health = get_json(f"{GRAFANA}/api/health")
     check(health.get("database") == "ok", "Grafana is healthy")
-    check(get_text(f"{TEMPO}/ready").strip() == "ready",
-          "Grafana can reach Tempo through its datasource proxy")
+    # A fresh Tempo reports 503 on /ready until its ingester has waited out its startup check, so
+    # the gate waits for the backend instead of failing on a container that is merely cold.
+    wait_for("Grafana can reach a ready Tempo through its datasource proxy",
+             lambda: get_text(f"{TEMPO}/ready").strip() == "ready" or None)
     search = get_json(f"{GRAFANA}/api/search?" + urllib.parse.urlencode({"query": "EventFlow", "type": "dash-db"}))
     uids = sorted(item.get("uid") for item in search)
     check(uids == ["eventflow-business", "eventflow-messaging", "eventflow-rest", "eventflow-services"],

@@ -76,6 +76,10 @@ wait_for() {
 wait_for "Prometheus  http://localhost:${PROMETHEUS_PORT}/-/ready" "http://localhost:${PROMETHEUS_PORT}/-/ready"
 wait_for "Grafana     http://localhost:${GRAFANA_PORT}/api/health" "http://localhost:${GRAFANA_PORT}/api/health"
 wait_for "Front door  http://localhost:${APP_PORT}/" "http://localhost:${APP_PORT}/"
+# Tempo answers 503 on /ready until its ingester passes its startup check; without this wait the
+# first verification run can race a cold backend.
+wait_for "Tempo       through Grafana's datasource proxy" \
+  "http://localhost:${GRAFANA_PORT}/api/datasources/proxy/uid/tempo/ready"
 
 cat <<EOF
 

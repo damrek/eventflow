@@ -241,3 +241,17 @@
   when a dependency, the endpoint exposure, the histogram flag, a migration, a pinned image, a
   loopback-only port, a scrape target, a dashboard uid or the `FLOW_START` guard is removed — the
   same shape as Phase 6's `deployment-invariants-test.sh`.
+- **L19 (2026-11-24, the two items the verifier could not run, proven by the parent):**
+  1. `waiting_room_users` under a Redis outage: 30 users joined → scrape `waiting_room_users 30.0`;
+     `docker compose stop redis` → the same scrape answers `200` with `waiting_room_users 30.0`
+     (the last successful reading), and Redis was started again. The gauge can never fail a scrape.
+  2. `observability-down.sh` then `observability-up.sh` both exit `0`: the stack stops completely
+     and comes back through the script's own build, health loop and URL check.
+  3. The pinned tags (`prom/prometheus:v3.16.0`, `grafana/grafana:13.2.6`, `grafana/tempo:2.10.10`,
+     `otel/opentelemetry-collector-contrib:0.165.0`) were checked against the Docker Hub API when
+     chosen (all `200`) and are the images running now.
+- **L20 (2026-11-24, defect found by the parent's spot check):** the first `observability-verify.sh`
+  run after a restart failed on `GET …/tempo/ready → 503 Ingester not ready: waiting for 15s after
+  being ready`. Tempo is cold after `up`, and a gate that fails on a cold backend is a bad gate: the
+  script now waits for Tempo readiness, and `observability-up.sh` waits for the same endpoint before
+  it prints the URLs. Re-run after the fix: `exit 0`, 48 checks, both `PASS` lines.
