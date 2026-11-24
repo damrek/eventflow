@@ -33,3 +33,13 @@ Cuatro servicios: Catalog, Booking, Payment y Notification. React SPA. PostgreSQ
 ## Primer paso
 
 OpenCode debe inspeccionar el repositorio, leer `docs/07-opencode.md` y proponer la Fase 0. Implementar solo bootstrap y Catalog en la primera iteración. No generar todos los servicios de una vez.
+
+## Material de portfolio (Fases 7 y 8)
+
+Para entender qué demuestra el proyecto sin leer todo el código, en este orden:
+
+1. `README.md` — el problema, la arquitectura y una tabla que enlaza cada afirmación con su test.
+2. `docs/adr/README.md` — las catorce decisiones, una línea cada una.
+3. `docs/performance/README.md` — los escenarios k6 y los resultados medidos, con lo que **no** prueban.
+4. `odd/tasks/` — una fase por documento: especificaciones, tareas, evidencia y decisiones tomadas.
+5. `EVENTFLOW_HANDOFF.md` (este archivo) — invariantes no negociables y reglas del agente.

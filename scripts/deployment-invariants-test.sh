@@ -75,6 +75,51 @@ if git rev-parse --git-dir >/dev/null 2>&1 && git ls-files --error-unmatch .env 
   printf 'FAIL .env is tracked\n' >&2; failures=$((failures + 1))
 else printf 'ok   .env is not tracked\n'; fi
 
+# Host-exposure guards: every published port stays on loopback, the untracked .env never enters a
+# build context, and the ignore rules cover the env variants and credential files.
+#
+# The port check is per entry on purpose: a form-specific pattern passed a bare `- 9000:9000` and an
+# explicit `0.0.0.0:` binding, which is exactly the exposure it exists to catch.
+ports_seen=0
+ports_bad=0
+while IFS= read -r entry; do
+  [ -n "$entry" ] || continue
+  ports_seen=$((ports_seen + 1))
+  case "$entry" in
+    *'127.0.0.1:'*) ;;
+    *) printf 'FAIL port is not loopback-bound: %s\n' "$entry" >&2; ports_bad=$((ports_bad + 1)) ;;
+  esac
+done <<PORTS
+$(awk '/^    ports:/ { inside = 1; next } inside && /^      - / { print; next } inside && !/^      / { inside = 0 }' compose.yaml)
+PORTS
+if [ "$ports_bad" -eq 0 ] && [ "$ports_seen" -gt 0 ]; then
+  printf 'ok   every published port is loopback-bound (%s)\n' "$ports_seen"
+else
+  if [ "$ports_seen" -eq 0 ]; then
+    printf 'FAIL no published port was parsed from compose.yaml\n' >&2
+    failures=$((failures + 1))
+  fi
+  failures=$((failures + ports_bad))
+fi
+require .dockerignore '^\.env$' '.dockerignore keeps .env out of the build context'
+require .dockerignore '^\*\*/\.env$' '.dockerignore keeps a nested .env out of the build context'
+require frontend/.dockerignore '^\.env$' 'the frontend build context keeps .env out'
+require .gitignore '^\.env\.\*$' '.gitignore covers the env file variants'
+require .gitignore '^!\.env\.example$' '.gitignore still tracks the env template'
+require .gitignore '^\*\.pem$' '.gitignore covers *.pem keys'
+require .gitignore '^\*\.key$' '.gitignore covers *.key files'
+require .gitignore '^\*\.jks$' '.gitignore covers keystores'
+require .gitignore '^local\.properties$' '.gitignore covers local.properties'
+
+# The k3d load balancer is the other host door: k3d binds every interface when the HOST part of the
+# mapping is omitted, so the check reads the declared value instead of trusting one spelling.
+k3d_port_line=$(awk '/--port "/ { sub(/^[ \t]+/, ""); print; exit }' scripts/k3d-up.sh)
+case "$k3d_port_line" in
+  '--port "127.0.0.1:'*) printf 'ok   the k3d ingress publishes on loopback only\n' ;;
+  '') printf 'FAIL scripts/k3d-up.sh declares no ingress --port\n' >&2; failures=$((failures + 1)) ;;
+  *) printf 'FAIL the k3d ingress is not loopback-bound: %s\n' "$k3d_port_line" >&2; failures=$((failures + 1)) ;;
+esac
+
 if [ "$failures" -ne 0 ]; then
   printf '%d deployment invariant(s) broken\n' "$failures" >&2
   exit 1

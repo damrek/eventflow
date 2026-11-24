@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useSyncExternalStore } from "react";
 
 import { formatDuration } from "../../components/format";
 
@@ -8,21 +8,25 @@ interface CountdownProps {
   onExpire?: () => void;
 }
 
+/** The clock is an external, mutable source: subscribe to it instead of copying it into state. */
+function subscribeToClock(onChange: () => void) {
+  const timer = window.setInterval(onChange, 1000);
+  return () => window.clearInterval(timer);
+}
+
+function readClock() {
+  return Date.now();
+}
+
 /** Live countdown to the hold deadline. It never changes a reservation status by itself. */
 export function Countdown({ until, onExpire }: CountdownProps) {
-  const [remaining, setRemaining] = useState(() => Date.parse(until) - Date.now());
+  const now = useSyncExternalStore(subscribeToClock, readClock, readClock);
+  const remaining = Date.parse(until) - now;
   const onExpireRef = useRef(onExpire);
 
   useEffect(() => {
     onExpireRef.current = onExpire;
   }, [onExpire]);
-
-  useEffect(() => {
-    const deadline = Date.parse(until);
-    setRemaining(deadline - Date.now());
-    const timer = window.setInterval(() => setRemaining(deadline - Date.now()), 1000);
-    return () => window.clearInterval(timer);
-  }, [until]);
 
   const expiredRef = useRef(false);
   useEffect(() => {

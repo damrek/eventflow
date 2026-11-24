@@ -50,7 +50,10 @@ export function WaitingRoomPage() {
       ) : null}
 
       {joinUnavailable ? (
-        <div role="alert" className="space-y-3 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+        <div
+          role="alert"
+          className="space-y-3 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900"
+        >
           <p className="font-semibold">The waiting room is unavailable</p>
           <p>
             The booking service cannot read the queue right now, so it allows reserving directly.

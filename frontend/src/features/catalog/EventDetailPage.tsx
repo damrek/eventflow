@@ -105,12 +105,24 @@ export function EventDetailPage() {
               <table className="min-w-full text-left text-sm">
                 <thead>
                   <tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
-                    <th scope="col" className="py-2 pr-4 font-medium">Ticket type</th>
-                    <th scope="col" className="py-2 pr-4 font-medium">Price</th>
-                    <th scope="col" className="py-2 pr-4 font-medium">Available</th>
-                    <th scope="col" className="py-2 pr-4 font-medium">Held</th>
-                    <th scope="col" className="py-2 pr-4 font-medium">Sold</th>
-                    <th scope="col" className="py-2 font-medium">Capacity</th>
+                    <th scope="col" className="py-2 pr-4 font-medium">
+                      Ticket type
+                    </th>
+                    <th scope="col" className="py-2 pr-4 font-medium">
+                      Price
+                    </th>
+                    <th scope="col" className="py-2 pr-4 font-medium">
+                      Available
+                    </th>
+                    <th scope="col" className="py-2 pr-4 font-medium">
+                      Held
+                    </th>
+                    <th scope="col" className="py-2 pr-4 font-medium">
+                      Sold
+                    </th>
+                    <th scope="col" className="py-2 font-medium">
+                      Capacity
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -119,7 +131,10 @@ export function EventDetailPage() {
                       event.ticketTypes.find((ticketType) => ticketType.id === row.ticketTypeId)
                         ?.name ?? row.ticketTypeId;
                     return (
-                      <tr key={row.ticketTypeId} className="border-b border-slate-100 last:border-0">
+                      <tr
+                        key={row.ticketTypeId}
+                        className="border-b border-slate-100 last:border-0"
+                      >
                         <td className="py-2 pr-4 font-medium text-slate-900">{name}</td>
                         <td className="py-2 pr-4">{formatPrice(row.price)}</td>
                         <td className="py-2 pr-4">{row.available}</td>
@@ -148,7 +163,9 @@ export function EventDetailPage() {
             <SelectionForm eventId={event.id} options={sellable} />
           )
         ) : (
-          <p className="text-sm text-slate-600">Ticket selection appears once availability loads.</p>
+          <p className="text-sm text-slate-600">
+            Ticket selection appears once availability loads.
+          </p>
         )}
 
         {soldOut.length > 0 ? (

@@ -41,11 +41,11 @@ if k3d cluster list -o json | grep -q "\"name\":\"${CLUSTER}\""; then
     k3d cluster start "${CLUSTER}" --wait
   fi
 else
-  echo "==> Creating cluster ${CLUSTER} (1 server, 1 agent, ingress on :${INGRESS_PORT})"
+  echo "==> Creating cluster ${CLUSTER} (1 server, 1 agent, ingress on 127.0.0.1:${INGRESS_PORT})"
   k3d cluster create "${CLUSTER}" \
     --servers 1 \
     --agents 1 \
-    --port "${INGRESS_PORT}:80@loadbalancer" \
+    --port "127.0.0.1:${INGRESS_PORT}:80@loadbalancer" \
     --wait
 fi
 

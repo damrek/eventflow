@@ -14,7 +14,12 @@ interface UseWaitingRoomStatusOptions {
   poll: boolean;
 }
 
-export function useWaitingRoomStatus({ eventId, userId, enabled, poll }: UseWaitingRoomStatusOptions) {
+export function useWaitingRoomStatus({
+  eventId,
+  userId,
+  enabled,
+  poll,
+}: UseWaitingRoomStatusOptions) {
   return useQuery({
     queryKey: queryKeys.waitingRoom(eventId, userId),
     queryFn: () => getWaitingRoomStatus(eventId, userId),

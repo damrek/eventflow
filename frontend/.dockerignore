@@ -3,3 +3,7 @@ dist
 .vite
 coverage
 *.log
+
+# Vite reads .env* at build time; a build-context copy is unnecessary and could carry values.
+.env
+.env.*

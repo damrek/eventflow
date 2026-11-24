@@ -2,10 +2,7 @@ import { request } from "./client";
 import type { PageResponse } from "./types";
 
 export type NotificationType =
-  | "BOOKING_CONFIRMED"
-  | "BOOKING_CANCELLED"
-  | "BOOKING_EXPIRED"
-  | "BOOKING_PAYMENT_FAILED";
+  "BOOKING_CONFIRMED" | "BOOKING_CANCELLED" | "BOOKING_EXPIRED" | "BOOKING_PAYMENT_FAILED";
 
 export type NotificationState = "UNREAD" | "READ";
 

@@ -63,9 +63,23 @@ describe("critical flow", () => {
     let reservationGets = 0;
 
     const backend = installFakeBackend([
-      { method: "GET", path: "/api/catalog/events", handler: () => ({ body: { content: [eventSummary], page: 0, size: 20, totalElements: 1, totalPages: 1 } }) },
-      { method: "GET", path: `/api/catalog/events/${EVENT_ID}`, handler: () => ({ body: eventDetail }) },
-      { method: "GET", path: `/api/booking/events/${EVENT_ID}/availability`, handler: () => ({ body: availability }) },
+      {
+        method: "GET",
+        path: "/api/catalog/events",
+        handler: () => ({
+          body: { content: [eventSummary], page: 0, size: 20, totalElements: 1, totalPages: 1 },
+        }),
+      },
+      {
+        method: "GET",
+        path: `/api/catalog/events/${EVENT_ID}`,
+        handler: () => ({ body: eventDetail }),
+      },
+      {
+        method: "GET",
+        path: `/api/booking/events/${EVENT_ID}/availability`,
+        handler: () => ({ body: availability }),
+      },
       {
         method: "POST",
         path: `/api/booking/waiting-room/${EVENT_ID}/join`,
@@ -102,7 +116,13 @@ describe("critical flow", () => {
           return { body: reservationBody(reservationGets === 1 ? "PENDING_PAYMENT" : "CONFIRMED") };
         },
       },
-      { method: "GET", path: "/api/notification/notifications", handler: () => ({ body: { content: [], page: 0, size: 20, totalElements: 0, totalPages: 0 } }) },
+      {
+        method: "GET",
+        path: "/api/notification/notifications",
+        handler: () => ({
+          body: { content: [], page: 0, size: 20, totalElements: 0, totalPages: 0 },
+        }),
+      },
     ]);
 
     renderWithRouter(

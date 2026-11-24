@@ -14,3 +14,28 @@ scripts
 deploy
 compose.yaml
 *.md
+
+# Never ship local secrets or host material in the build context. The image stages copy explicit
+# paths, but the context is still uploaded to the builder (and to a remote one when buildx points
+# elsewhere), so untracked credential files must stay out of it.
+#
+# Docker's patterns without a slash match the context root only (unlike .gitignore, which matches
+# at any depth), so `**/` is what reaches a credential file inside a module.
+.env
+.env.*
+*.local
+*.pem
+*.key
+*.jks
+*.keystore
+*.p12
+local.properties
+**/.env
+**/.env.*
+**/*.local
+**/*.pem
+**/*.key
+**/*.jks
+**/*.keystore
+**/*.p12
+**/local.properties

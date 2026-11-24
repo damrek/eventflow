@@ -13,9 +13,23 @@ build/
 
 # Environment and local state
 .env
+# Also covers the variants Vite reads (.env.development, .env.production) while keeping the
+# documented template tracked: the negation must follow the pattern above.
+.env.*
+!.env.example
 *.local
 .DS_Store
 .atl/
+
+# Credentials and local configuration overrides: never tracked, never shipped in a build context.
+*.pem
+*.key
+*.jks
+*.keystore
+*.p12
+local.properties
+application-local.yml
+application-local.properties
 
 # Frontend
 node_modules/

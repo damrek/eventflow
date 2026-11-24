@@ -63,7 +63,11 @@ describe("my reservations", () => {
 
   it("shows an empty state when the browser holds no reservation id", async () => {
     installFakeBackend([
-      { method: "GET", path: "/api/notification/notifications", handler: () => ({ body: pageOf([]) }) },
+      {
+        method: "GET",
+        path: "/api/notification/notifications",
+        handler: () => ({ body: pageOf([]) }),
+      },
     ]);
 
     renderWithRouter(<MyReservationsPage />);

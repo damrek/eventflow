@@ -69,7 +69,11 @@ describe("reserve page", () => {
 
     const backend = installFakeBackend([
       { method: "GET", path: `/api/booking/waiting-room/${EVENT_ID}/status`, handler: admitted },
-      { method: "GET", path: `/api/catalog/events/${EVENT_ID}`, handler: () => ({ body: eventDetail }) },
+      {
+        method: "GET",
+        path: `/api/catalog/events/${EVENT_ID}`,
+        handler: () => ({ body: eventDetail }),
+      },
       {
         method: "POST",
         path: "/api/booking/reservations",
@@ -134,7 +138,11 @@ describe("reserve page", () => {
 
     const backend = installFakeBackend([
       { method: "GET", path: `/api/booking/waiting-room/${EVENT_ID}/status`, handler: admitted },
-      { method: "GET", path: `/api/catalog/events/${EVENT_ID}`, handler: () => ({ body: eventDetail }) },
+      {
+        method: "GET",
+        path: `/api/catalog/events/${EVENT_ID}`,
+        handler: () => ({ body: eventDetail }),
+      },
       {
         method: "POST",
         path: "/api/booking/reservations",
@@ -162,10 +170,7 @@ describe("reserve page", () => {
             return { body: reservationBody("res-2", "HELD") };
           }
           return {
-            body: reservationBody(
-              "res-1",
-              checkoutCalls === 0 ? "HELD" : "PAYMENT_FAILED",
-            ),
+            body: reservationBody("res-1", checkoutCalls === 0 ? "HELD" : "PAYMENT_FAILED"),
           };
         },
       },
@@ -178,7 +183,11 @@ describe("reserve page", () => {
     await userEvent.click(screen.getByRole("button", { name: "Pay now" }));
 
     expect(
-      await screen.findByText("The payment was rejected by the payment provider", {}, { timeout: 12_000 }),
+      await screen.findByText(
+        "The payment was rejected by the payment provider",
+        {},
+        { timeout: 12_000 },
+      ),
     ).toBeInTheDocument();
 
     const retryButton = screen.getByRole("button", { name: "Reserve again" });
@@ -197,7 +206,11 @@ describe("reserve page", () => {
   it("renders an expired hold reported by the backend", async () => {
     installFakeBackend([
       { method: "GET", path: `/api/booking/waiting-room/${EVENT_ID}/status`, handler: admitted },
-      { method: "GET", path: `/api/catalog/events/${EVENT_ID}`, handler: () => ({ body: eventDetail }) },
+      {
+        method: "GET",
+        path: `/api/catalog/events/${EVENT_ID}`,
+        handler: () => ({ body: eventDetail }),
+      },
       {
         method: "POST",
         path: "/api/booking/reservations",
@@ -213,7 +226,11 @@ describe("reserve page", () => {
     renderReserve();
 
     expect(
-      await screen.findByText("The hold expired before the payment completed", {}, { timeout: 8000 }),
+      await screen.findByText(
+        "The hold expired before the payment completed",
+        {},
+        { timeout: 8000 },
+      ),
     ).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Pay now" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Reserve again" })).toBeInTheDocument();
@@ -224,7 +241,11 @@ describe("reserve page", () => {
 
     const backend = installFakeBackend([
       { method: "GET", path: `/api/booking/waiting-room/${EVENT_ID}/status`, handler: admitted },
-      { method: "GET", path: `/api/catalog/events/${EVENT_ID}`, handler: () => ({ body: eventDetail }) },
+      {
+        method: "GET",
+        path: `/api/catalog/events/${EVENT_ID}`,
+        handler: () => ({ body: eventDetail }),
+      },
       {
         method: "POST",
         path: "/api/booking/reservations",
@@ -300,9 +321,21 @@ describe("reserve page", () => {
       {
         method: "GET",
         path: `/api/booking/waiting-room/${EVENT_ID}/status`,
-        handler: () => ({ status: 503, body: { status: 503, code: "WAITING_ROOM_UNAVAILABLE", detail: "Redis is down", traceId: "trace-503" } }),
+        handler: () => ({
+          status: 503,
+          body: {
+            status: 503,
+            code: "WAITING_ROOM_UNAVAILABLE",
+            detail: "Redis is down",
+            traceId: "trace-503",
+          },
+        }),
       },
-      { method: "GET", path: `/api/catalog/events/${EVENT_ID}`, handler: () => ({ body: eventDetail }) },
+      {
+        method: "GET",
+        path: `/api/catalog/events/${EVENT_ID}`,
+        handler: () => ({ body: eventDetail }),
+      },
       {
         method: "POST",
         path: "/api/booking/reservations",
