@@ -5,6 +5,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.Date;
 import java.util.List;
+import java.util.Map;
 
 import org.springframework.amqp.AmqpException;
 import org.springframework.amqp.core.Message;
@@ -16,6 +17,10 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.eventflow.catalog.shared.web.TraceId;
+
+import io.micrometer.tracing.Span;
+import io.micrometer.tracing.Tracer;
+import io.micrometer.tracing.propagation.Propagator;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -31,10 +36,14 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public class OutboxRelay {
 
+    private static final String TRACEPARENT = "traceparent";
+
     private final OutboxEventRepository outbox;
     private final RabbitTemplate rabbitTemplate;
     private final MessagingProperties properties;
     private final Clock clock;
+    private final Tracer tracer;
+    private final Propagator propagator;
 
     @Scheduled(fixedDelayString = "${eventflow.messaging.outbox.interval}")
     @Transactional
@@ -46,7 +55,16 @@ public class OutboxRelay {
         try {
             rabbitTemplate.invoke(operations -> {
                 for (OutboxEvent event : batch) {
-                    operations.send(properties.exchange(), event.getRoutingKey(), message(event));
+                    // The relay span continues the trace that wrote the row, instead of starting
+                    // one in the relay thread, so the broker hop stays inside the same trace.
+                    Span relaySpan = restore(event.getTraceparent());
+                    try (Tracer.SpanInScope scope = relaySpan == null ? null : tracer.withSpan(relaySpan)) {
+                        operations.send(properties.exchange(), event.getRoutingKey(), message(event));
+                    } finally {
+                        if (relaySpan != null) {
+                            relaySpan.end();
+                        }
+                    }
                 }
                 operations.waitForConfirmsOrDie(properties.outbox().confirmTimeout().toMillis());
                 return null;
@@ -60,6 +78,19 @@ public class OutboxRelay {
         batch.forEach(event -> event.markPublished(now));
         log.info("Published {} outbox event(s)", batch.size());
         return batch.size();
+    }
+
+    /**
+     * Rebuilds the parent context stored with the row. A row written by a scheduled job has no
+     * traceparent and publishes under the relay's own span, exactly as before.
+     */
+    private Span restore(String traceparent) {
+        if (traceparent == null || traceparent.isBlank()) {
+            return null;
+        }
+        return propagator.extract(Map.of(TRACEPARENT, traceparent), Map::get)
+                .name("outbox relay")
+                .start();
     }
 
     private static Message message(OutboxEvent event) {

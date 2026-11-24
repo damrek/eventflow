@@ -10,7 +10,12 @@ import org.slf4j.MDC;
  */
 public final class TraceId {
 
-    public static final String MDC_KEY = "traceId";
+    /**
+     * The MDC key of the request correlation id. Micrometer Tracing owns {@code traceId} and
+     * {@code spanId} in the MDC since Phase 7, so the caller-provided id keeps its own key and the
+     * two never overwrite each other.
+     */
+    public static final String MDC_KEY = "requestId";
     public static final String HEADER = "X-Request-Id";
 
     private static final String ABSENT = "unavailable";

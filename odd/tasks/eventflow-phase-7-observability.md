@@ -101,8 +101,8 @@
 
 ## Tasks
 
-- **T1 — Prometheus endpoint in the five services** (S1). Route: inline.
-- **T2 — Business meters and their tests** (S2). Route: inline.
+- **T1 — Prometheus endpoint in the five services** (S1). Route: inline. Done: `e7813d0`.
+- **T2 — Business meters and their tests** (S2). Route: inline. Done: `0b70b79`.
 - **T3 — Tracing deps, HTTP/AMQP observation, outbox traceparent** (S3). Route: inline.
 - **T4 — ECS structured logs and MDC ids** (S4). Route: inline.
 - **T5 — Observability profile, configs and dashboards** (S5). Route: inline.
@@ -137,3 +137,20 @@
   own HTTP listener. Proven in a container: `/metrics` on the management port `15672` is `404`,
   while `http://localhost:15692/metrics` is `200` and returns `telemetry_scrape_size_bytes`. The
   plugin needs no extra file or command; the default image already enables it.
+- **L7 (2026-11-24, evidence T1):** RED observed first on the cheapest service: with
+  `micrometer-registry-prometheus` removed, `MetricsEndpointTest` (payment-simulator) failed on the
+  missing endpoint; GREEN once restored. `:payment-simulator:test` and `:catalog:test` green, then
+  `:booking:test`, `:notification:test` and `:payment:test` green (`MetricsEndpointTest` in each).
+  Two test-only findings: Booking's `BookingIntegrationTest` holds containers only, so a new class
+  must declare `@SpringBootTest(properties = …)` itself (mirrored `ReservationApiIntegrationTest`
+  so the context is the cached one), and `:payment` had no `spring-boot-starter-webmvc-test`, added
+  as test scope for MockMvc.
+- **L8 (2026-11-24, evidence T2):** `BookingMetricsTest` pins the semantics as deltas (counters live
+  for the whole JVM): one attempt per new creation, none for a replay, one attempt plus one conflict
+  for a refused hold. Insufficient stock answers **422**, not 409 (the handler maps
+  `InsufficientTicketsException` to `Unprocessable Content`), so the test asserts
+  `isUnprocessableContent`. Expiry, confirmation, waiting-room gauge and the two payment failure
+  reasons are asserted inside the existing integration tests that already drive those flows.
+  `PaymentMetrics` registers its three `reason` series at startup: a lazily created counter made
+  `payment_failures_total` absent from the scrape until the first failure, which a dashboard would
+  render as "no data" instead of zero.

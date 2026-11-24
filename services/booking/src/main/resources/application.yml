@@ -24,8 +24,13 @@ spring:
     password: ${RABBITMQ_PASSWORD:eventflow}
     # The outbox relay marks a row published only after waitForConfirmsOrDie succeeds.
     publisher-confirm-type: correlated
+    template:
+      # Sends a traceparent header so the consumer continues this trace (S3).
+      observation-enabled: true
     listener:
       simple:
+        # Reads the traceparent header the producer wrote, so the broker hop joins one trace.
+        observation-enabled: true
         # The listener transaction commits before the container acks; a crash in between
         # redelivers the message and the inbox makes the second delivery a no-op.
         acknowledge-mode: auto
@@ -82,6 +87,22 @@ booking:
     reservation-max: ${BOOKING_RATE_LIMIT_RESERVATION_MAX:300}
 
 management:
+  # Tracing (S3). Export is opt-in: the collector only exists in the observability profile, so a
+  # local bootRun or a test run creates and propagates spans without posting them anywhere.
+  tracing:
+    export:
+      otlp:
+        enabled: ${OTEL_TRACES_ENABLED:false}
+    # Every span is sampled locally; a production deployment would lower this and say so.
+    sampling:
+      probability: ${OTEL_TRACES_SAMPLING:1.0}
+    propagation:
+      type: W3C
+  opentelemetry:
+    tracing:
+      export:
+        otlp:
+          endpoint: ${OTEL_TRACES_ENDPOINT:http://localhost:4318/v1/traces}
   endpoints:
     web:
       exposure:

@@ -11,6 +11,22 @@ simulator:
   timeout-delay: ${PAYMENT_SIMULATOR_TIMEOUT_DELAY:PT5S}
 
 management:
+  # Tracing (S3). Export is opt-in: the collector only exists in the observability profile, so a
+  # local bootRun or a test run creates and propagates spans without posting them anywhere.
+  tracing:
+    export:
+      otlp:
+        enabled: ${OTEL_TRACES_ENABLED:false}
+    # Every span is sampled locally; a production deployment would lower this and say so.
+    sampling:
+      probability: ${OTEL_TRACES_SAMPLING:1.0}
+    propagation:
+      type: W3C
+  opentelemetry:
+    tracing:
+      export:
+        otlp:
+          endpoint: ${OTEL_TRACES_ENDPOINT:http://localhost:4318/v1/traces}
   endpoints:
     web:
       exposure:
