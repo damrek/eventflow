@@ -27,6 +27,9 @@ cd frontend && npm test               # Vitest + Testing Library
 cd frontend && npm run build          # tsc -b + Vite production build
 ./scripts/dev-up.sh                   # all services + SPA in the background (logs in build/dev/)
 ./scripts/dev-down.sh                 # stop them (--infra also stops the containers)
+./scripts/demo.sh                     # narrated end-to-end walkthrough; asserts every state
+./scripts/load-test.sh read-path      # k6 against the running stack (docs/performance)
+./scripts/ci-invariants-test.sh       # the CI contract, statically (plus actionlint)
 ```
 
 - There is no system Gradle: always use `./gradlew` (wrapper 9.9.2).
@@ -80,6 +83,11 @@ cd frontend && npm run build          # tsc -b + Vite production build
   Redis window) and `WaitingRoomRedisOutageTest` (stop/restart Redis: 503 for the room, sales still
   correct and never oversold). Frontend: `npm test` covers the critical flow and the
   waiting/reservation states; `npm run build` is a gate.
+- The Phase 8 gate: `scripts/ci-invariants-test.sh` (the workflow's commands, pins and permissions,
+  plus actionlint) and the two k6 scenarios under `docs/performance/k6`; `scripts/demo.sh` is the
+  same flow the README documents, asserted. Frontend lint/format gates are `npm run lint` and
+  `npm run format:check` (ESLint 9 + Prettier, exact pins). A green pipeline can only be observed
+  after a push, which is a human decision.
 
 ## Layout and ownership
 

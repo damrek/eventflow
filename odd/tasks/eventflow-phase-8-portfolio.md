@@ -111,13 +111,13 @@
 
 ## Tasks
 
-- **T1 — ESLint + Prettier for the frontend, zero findings** (S1). Route: inline.
-- **T2 — GitHub Actions CI** (S2). Route: inline.
-- **T3 — k6 scenarios, runner, measured results** (S3). Route: inline.
-- **T4 — ADR 0008 and the ADR index** (S4). Route: inline.
-- **T5 — README as portfolio document** (S5). Route: inline.
-- **T6 — `scripts/demo.sh` and screenshots** (S6). Route: inline.
-- **T7 — Close-out and independent verification** (S7). Route: inline + one verifier.
+- **T1 — ESLint + Prettier for the frontend, zero findings** (S1). Route: inline. Done: `0571bdf`.
+- **T2 — GitHub Actions CI** (S2). Route: inline. Done: `3a1cda7`.
+- **T3 — k6 scenarios, runner, measured results** (S3). Route: inline. Done: `465c417`.
+- **T4 — ADR 0008 and the ADR index** (S4). Route: inline. Done: `1d653a7`.
+- **T5 — README as portfolio document** (S5). Route: inline. Done: `94082a6`.
+- **T6 — `scripts/demo.sh` and screenshots** (S6). Route: inline. Done: `94082a6`.
+- **T7 — Close-out and independent verification** (S7). Route: inline + one verifier. In progress.
 
 ## Log
 
@@ -143,3 +143,44 @@
   Docker Hub lists `grafana/k6` tags up to `2.4.0`; the v2.0.0 release notes were read and remove only
   long-deprecated CLI commands, the `externally-controlled` executor and the
   `k6/experimental/redis` module — the JS API these scenarios use is unchanged.
+- **L7 (2026-11-24, evidence T1, RED first):** a probe file with `useState` inside a condition made
+  `npm run lint` exit `1` before anything else changed; removing it is what turns the gate green.
+  The real run then reported 4 findings in three files, all `react-hooks/set-state-in-effect` or
+  `@typescript-eslint/triple-slash-reference`, never a formatting issue:
+  1. `useWaitingRoomJoin` and `useHoldCreation` now derive their pending state during render from the
+     attempt in flight (`forAttempt`/`forRequest`) instead of writing state from the effect body, so a
+     stale answer can never describe the current attempt. Both keep their retry/idempotency semantics.
+  2. `Countdown` reads the clock through `useSyncExternalStore` (the sanctioned way to read an
+     external mutable source) instead of copying `Date.now()` into state; a first attempt that
+     derived it during render was rejected by `react-hooks/purity`, which is the rule working.
+  `npm test` stayed at 22/22 green across both refactors; the Prettier pass touched 21 files (~200
+  lines, whitespace and quoting only) and `npm run build` kept producing the same bundle name.
+- **L8 (2026-11-24, evidence T2):** `rhysd/actionlint:1.7.12` accepts `.github/workflows/ci.yml`, and
+  `scripts/ci-invariants-test.sh` pins the contract with 43 checks. The backend job's command was run
+  here with the same JDK: `./gradlew build --rerun-tasks` (a plain `build` was `UP-TO-DATE` and
+  therefore no evidence) finished `BUILD SUCCESSFUL in 3m 16s` after the whole Testcontainers suite.
+  The frontend job's four commands were run in `frontend/` and all exited `0`. What remains unproven
+  by definition is the run on GitHub: that needs a push (L3).
+- **L9 (2026-11-24, evidence T3, three defects found by running it):**
+  1. `docker run` without `--user` wrote nothing: `grafana/k6` runs as a non-root user and the mounted
+     results directory was not writable. The runner now passes `--user "$(id -u):$(id -g)"`.
+  2. `waitForInventory` failed on the first 404 (`INVENTORY_NOT_FOUND`) instead of waiting for the
+     broker hop; it now polls `tryAvailability`, which also marks `404` as an expected status so a
+     normal provisioning race is not counted as a failed request.
+  3. The first contention run reported 0.48 % failed requests: the global
+     `http.setResponseCallback` expected `201/422` for *every* request, so the setup's `200`s counted
+     as failures. The expectation now belongs to the reservation request only.
+  Final runs: `read-path` 950 iterations / 955 requests, 0.00 % failed, avg 2.6 ms, p95 3.1 ms;
+  `reservation-contention` 200 attempts, exactly 50 created and 150 refused, and the teardown read
+  `capacity 50, available 0, held 50, sold 0`. Both result objects are committed.
+- **L10 (2026-11-24, evidence T6):** `scripts/demo.sh` passed end to end against the Compose stack
+  (publish → provisioning → admission → hold → idempotent replay → checkout → `CONFIRMED` →
+  mailbox entry → `available 298, held 0, sold 2`). The OpenChamber browser panel could not be used
+  for the assets: its window was not being drawn, so `browser.capture` and `browser.click` refused
+  while `browser.snapshot` still worked. The screenshots therefore come from headless Chrome
+  (`--headless=new --screenshot`, 1440x900, `--virtual-time-budget`) against the same stack, with one
+  persistent profile so the SPA owns one demo identity (`web-2a324c85-…`); the confirmed reservation
+  was created for that identity through the API. The waiting-room shot shows position 221 of 221
+  because 220 real users were queued first. Both Grafana shots are provisioned dashboards with live
+  scraped data; the Tempo waterfall is not screenshot but asserted by `observability-verify.sh`.
+
