@@ -18,6 +18,14 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-flyway")
     implementation("org.springframework.boot:spring-boot-starter-validation")
     implementation("org.springframework.boot:spring-boot-starter-actuator")
+    // Prometheus scrape endpoint (S1 of Phase 7); the version comes from the Boot BOM.
+    implementation("io.micrometer:micrometer-registry-prometheus")
+    // Tracing (S3): Boot 4's tracing auto-configuration, the OpenTelemetry bridge and the OTLP
+    // exporter are separate BOM-managed modules; the starter is not used because it also adds the
+    // OTLP metrics registry, and metrics here are scraped by Prometheus instead.
+    implementation("org.springframework.boot:spring-boot-micrometer-tracing-opentelemetry")
+    runtimeOnly("io.micrometer:micrometer-tracing-bridge-otel")
+    runtimeOnly("io.opentelemetry:opentelemetry-exporter-otlp")
     implementation("org.springframework.boot:spring-boot-starter-rabbitmq")
     implementation("org.flywaydb:flyway-database-postgresql")
     implementation(libs.springdoc.openapi.webmvc.ui)

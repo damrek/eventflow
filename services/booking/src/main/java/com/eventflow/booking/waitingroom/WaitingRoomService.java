@@ -5,6 +5,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
@@ -35,6 +36,9 @@ public class WaitingRoomService {
     private final StringRedisTemplate redis;
     private final BookingProperties properties;
     private final Clock clock;
+
+    /** Last successful {@link #queuedUsers()} reading; served while Redis is unreachable. */
+    private volatile int lastQueuedUsers;
 
     public WaitingRoomStatusResponse join(UUID eventId, String userId) {
         try {
@@ -155,5 +159,33 @@ public class WaitingRoomService {
     private long waitingCount(UUID eventId) {
         Long count = redis.opsForZSet().zCard(WaitingRoomKeys.queue(eventId));
         return count == null ? 0 : count;
+    }
+
+    /**
+     * Users queued across every event that has a queue, for the {@code waiting_room_users} gauge.
+     * It iterates the {@code waiting-events} registry instead of scanning Redis, and while Redis
+     * is unreachable it returns the last successful reading: a metric is never worth failing a
+     * scrape over, and this value gates nothing.
+     */
+    public int queuedUsers() {
+        try {
+            Set<String> events = redis.opsForSet().members(WaitingRoomKeys.REGISTRY);
+            if (events == null || events.isEmpty()) {
+                lastQueuedUsers = 0;
+                return 0;
+            }
+            long total = 0;
+            for (String event : events) {
+                UUID eventId = WaitingRoomKeys.parseEventId(event);
+                if (eventId != null) {
+                    total += waitingCount(eventId);
+                }
+            }
+            lastQueuedUsers = (int) Math.min(total, Integer.MAX_VALUE);
+            return lastQueuedUsers;
+        } catch (DataAccessException redisDown) {
+            log.debug("Redis is unreachable; waiting_room_users keeps its last reading ({})", lastQueuedUsers);
+            return lastQueuedUsers;
+        }
     }
 }

@@ -10,6 +10,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.eventflow.notification.shared.messaging.EventEnvelope;
+import com.eventflow.notification.shared.messaging.EventLogContext;
 import com.eventflow.notification.shared.messaging.EventEnvelopeReader;
 import com.eventflow.notification.shared.messaging.Inbox;
 
@@ -50,11 +51,13 @@ public class BookingEventListener {
             return;
         }
         BookingEventPayload payload = EventEnvelopeReader.payload(jsonMapper, envelope, BookingEventPayload.class);
-        notifications.record(
-                type,
-                payload.userId(),
-                notifications.contentFor(type, payload.reservationId(), payload.eventId()),
-                envelope.eventId());
-        log.info("Recorded {} for user {} from event {}", type, payload.userId(), envelope.eventId());
+        try (EventLogContext logs = EventLogContext.open(envelope.eventId(), payload.reservationId())) {
+            notifications.record(
+                    type,
+                    payload.userId(),
+                    notifications.contentFor(type, payload.reservationId(), payload.eventId()),
+                    envelope.eventId());
+            log.info("Recorded {} for user {} from event {}", type, payload.userId(), envelope.eventId());
+        }
     }
 }

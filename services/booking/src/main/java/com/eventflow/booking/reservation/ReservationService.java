@@ -18,6 +18,7 @@ import com.eventflow.booking.reservation.dto.ReservationResponse;
 import com.eventflow.booking.shared.domain.EntityNotFoundException;
 import com.eventflow.booking.shared.domain.StateConflictException;
 import com.eventflow.booking.shared.messaging.EventPublisher;
+import com.eventflow.booking.shared.metrics.BookingMetrics;
 
 import lombok.RequiredArgsConstructor;
 import tools.jackson.databind.json.JsonMapper;
@@ -38,6 +39,7 @@ public class ReservationService {
     private final Clock clock;
     private final BookingProperties properties;
     private final EventPublisher publisher;
+    private final BookingMetrics metrics;
 
     @Transactional
     public ReservationResult create(
@@ -51,6 +53,7 @@ public class ReservationService {
         if (claimed == 0) {
             return replay(userId, key, fingerprint);
         }
+        metrics.attempt();
 
         List<ReservationLine> lines = holdUnits(eventId, selections);
         Reservation reservation =
@@ -109,6 +112,7 @@ public class ReservationService {
                     .findByEventIdAndTicketTypeId(eventId, selection.ticketTypeId())
                     .orElseThrow(() -> EntityNotFoundException.of("INVENTORY_NOT_FOUND", "Inventory for event", eventId));
             if (inventory.hold(eventId, selection.ticketTypeId(), selection.quantity()) == 0) {
+                metrics.conflict();
                 throw new InsufficientTicketsException(selection.ticketTypeId(), selection.quantity());
             }
             lines.add(new ReservationLine(selection.ticketTypeId(), selection.quantity(), row.getPrice()));

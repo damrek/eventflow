@@ -45,13 +45,18 @@ public class OutboxEvent {
     @Column(name = "body", nullable = false)
     private String body;
 
+    /** W3C {@code traceparent} of the span that wrote the row; null when there was no span. */
+    @Column(name = "traceparent", length = 100)
+    private String traceparent;
+
     @Column(name = "occurred_at", nullable = false)
     private Instant occurredAt;
 
     @Column(name = "published_at")
     private Instant publishedAt;
 
-    public static OutboxEvent pending(EventEnvelope envelope, String routingKey, String body) {
+    public static OutboxEvent pending(
+            EventEnvelope envelope, String routingKey, String body, String traceparent) {
         OutboxEvent event = new OutboxEvent();
         event.id = UUID.randomUUID();
         event.eventId = envelope.eventId();
@@ -59,6 +64,7 @@ public class OutboxEvent {
         event.eventType = envelope.eventType();
         event.routingKey = routingKey;
         event.body = body;
+        event.traceparent = traceparent;
         event.occurredAt = envelope.occurredAt();
         return event;
     }

@@ -9,6 +9,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.eventflow.booking.shared.messaging.EventEnvelope;
+import com.eventflow.booking.shared.messaging.EventLogContext;
 import com.eventflow.booking.shared.messaging.EventEnvelopeReader;
 import com.eventflow.booking.shared.messaging.Inbox;
 
@@ -41,14 +42,16 @@ public class PaymentResultListener {
             return;
         }
         PaymentResultPayload payload = EventEnvelopeReader.payload(jsonMapper, envelope, PaymentResultPayload.class);
-        try {
-            if (PaymentResultTopology.AUTHORIZED.equals(envelope.eventType())) {
-                payments.authorized(payload.reservationId(), payload.paymentId());
-            } else {
-                payments.rejected(payload.reservationId(), payload.paymentId(), payload.reason());
+        try (EventLogContext logs = EventLogContext.open(envelope.eventId(), payload.reservationId())) {
+            try {
+                if (PaymentResultTopology.AUTHORIZED.equals(envelope.eventType())) {
+                    payments.authorized(payload.reservationId(), payload.paymentId());
+                } else {
+                    payments.rejected(payload.reservationId(), payload.paymentId(), payload.reason());
+                }
+            } catch (PermanentReservationException permanent) {
+                throw new AmqpRejectAndDontRequeueException(permanent.getMessage(), permanent);
             }
-        } catch (PermanentReservationException permanent) {
-            throw new AmqpRejectAndDontRequeueException(permanent.getMessage(), permanent);
         }
     }
 

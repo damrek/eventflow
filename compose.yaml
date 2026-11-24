@@ -1,5 +1,12 @@
 name: eventflow
 
+# The services post traces only when a collector exists. `scripts/observability-up.sh` starts the
+# observability profile with OTEL_TRACES_ENABLED=true; `stack-up.sh` leaves it false, so a stack
+# without a collector creates spans and propagates them without posting them anywhere.
+x-tracing: &tracing
+  OTEL_TRACES_ENABLED: ${OTEL_TRACES_ENABLED:-false}
+  OTEL_TRACES_ENDPOINT: ${OTEL_TRACES_ENDPOINT:-http://otel-collector:4318/v1/traces}
+
 services:
   postgres:
     image: postgres:18-alpine
@@ -79,6 +86,7 @@ services:
         SERVICE: catalog
     image: eventflow/catalog:${EVENTFLOW_TAG:-local}
     environment:
+      <<: *tracing
       CATALOG_DB_URL: jdbc:postgresql://postgres:5432/${CATALOG_DB:-catalog_db}
       CATALOG_DB_USER: ${POSTGRES_USER:-eventflow}
       CATALOG_DB_PASSWORD: ${POSTGRES_PASSWORD:-eventflow}
@@ -109,6 +117,7 @@ services:
         SERVICE: booking
     image: eventflow/booking:${EVENTFLOW_TAG:-local}
     environment:
+      <<: *tracing
       BOOKING_DB_URL: jdbc:postgresql://postgres:5432/${BOOKING_DB:-booking_db}
       BOOKING_DB_USER: ${POSTGRES_USER:-eventflow}
       BOOKING_DB_PASSWORD: ${POSTGRES_PASSWORD:-eventflow}
@@ -142,6 +151,7 @@ services:
         SERVICE: notification
     image: eventflow/notification:${EVENTFLOW_TAG:-local}
     environment:
+      <<: *tracing
       NOTIFICATION_DB_URL: jdbc:postgresql://postgres:5432/${NOTIFICATION_DB:-notification_db}
       NOTIFICATION_DB_USER: ${POSTGRES_USER:-eventflow}
       NOTIFICATION_DB_PASSWORD: ${POSTGRES_PASSWORD:-eventflow}
@@ -171,6 +181,7 @@ services:
         SERVICE: payment
     image: eventflow/payment:${EVENTFLOW_TAG:-local}
     environment:
+      <<: *tracing
       PAYMENT_DB_URL: jdbc:postgresql://postgres:5432/${PAYMENT_DB:-payment_db}
       PAYMENT_DB_USER: ${POSTGRES_USER:-eventflow}
       PAYMENT_DB_PASSWORD: ${POSTGRES_PASSWORD:-eventflow}
@@ -203,6 +214,8 @@ services:
       args:
         SERVICE: payment-simulator
     image: eventflow/payment-simulator:${EVENTFLOW_TAG:-local}
+    environment:
+      <<: *tracing
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8085/actuator/health"]
       interval: 10s
@@ -240,6 +253,69 @@ services:
       retries: 10
     restart: unless-stopped
 
+  # -------------------------------------------------------------------------------------------
+  # Profile "observability": Prometheus, Grafana, an OpenTelemetry collector and Tempo.
+  #
+  #   ./scripts/observability-up.sh      # core + app + observability, tracing on
+  #   ./scripts/observability-down.sh    # stop it (--volumes also deletes data)
+  #
+  # Prometheus scrapes the five services and RabbitMQ (which serves its own /metrics on 15692);
+  # the services post OTLP/HTTP to the collector; the collector batches into Tempo; Grafana reads
+  # both. Only Grafana and Prometheus publish a port, both on 127.0.0.1.
+  # -------------------------------------------------------------------------------------------
+  prometheus:
+    profiles: ["observability"]
+    image: prom/prometheus:v3.16.0
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      # A local stack keeps a few hours, not a few weeks.
+      - --storage.tsdb.retention.time=${PROMETHEUS_RETENTION:-6h}
+    volumes:
+      - ./deploy/observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "127.0.0.1:${PROMETHEUS_PORT:-9090}:9090"
+    restart: unless-stopped
+
+  grafana:
+    profiles: ["observability"]
+    image: grafana/grafana:13.2.6
+    environment:
+      # Local stack: anonymous viewing, no login wall, no secrets in the repository.
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+    volumes:
+      - ./deploy/observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./deploy/observability/grafana/dashboards:/etc/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "127.0.0.1:${GRAFANA_PORT:-3000}:3000"
+    restart: unless-stopped
+
+  otel-collector:
+    profiles: ["observability"]
+    image: otel/opentelemetry-collector-contrib:0.165.0
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    volumes:
+      - ./deploy/observability/otel/collector.yaml:/etc/otelcol-contrib/config.yaml:ro
+    restart: unless-stopped
+
+  tempo:
+    profiles: ["observability"]
+    image: grafana/tempo:2.10.10
+    command: ["-config.file=/etc/tempo.yaml"]
+    volumes:
+      - ./deploy/observability/tempo/tempo.yaml:/etc/tempo.yaml:ro
+      - tempo-data:/var/tempo
+    restart: unless-stopped
+
 volumes:
   postgres-data:
   rabbitmq-data:
+  prometheus-data:
+  grafana-data:
+  tempo-data:

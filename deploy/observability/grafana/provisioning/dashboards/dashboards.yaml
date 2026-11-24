@@ -1,0 +1,16 @@
+# Grafana dashboard provider for the EventFlow stack: the JSON files next to this one are the
+# dashboards. Editing one in the UI is disabled on purpose, so what the repository contains is what
+# the stack shows (the change belongs in the JSON file and a commit).
+apiVersion: 1
+
+providers:
+  - name: eventflow
+    orgId: 1
+    folder: EventFlow
+    folderUid: eventflow
+    type: file
+    disableDeletion: true
+    allowUiUpdates: false
+    updateIntervalSeconds: 30
+    options:
+      path: /etc/grafana/dashboards

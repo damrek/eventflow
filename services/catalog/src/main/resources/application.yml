@@ -23,6 +23,9 @@ spring:
     password: ${RABBITMQ_PASSWORD:eventflow}
     # The outbox relay marks a row published only after waitForConfirmsOrDie succeeds.
     publisher-confirm-type: correlated
+    template:
+      # Sends a traceparent header so the consumer continues this trace (S3).
+      observation-enabled: true
 
 server:
   port: ${CATALOG_PORT:8081}
@@ -36,10 +39,34 @@ eventflow:
       confirm-timeout: PT5S
 
 management:
+  metrics:
+    distribution:
+      # HTTP latency percentiles need histogram buckets: without them the dashboards could only
+      # show an average, and the documented latency panels would have nothing to quantile.
+      percentiles-histogram:
+        http.server.requests: true
+  # Tracing (S3). Export is opt-in: the collector only exists in the observability profile, so a
+  # local bootRun or a test run creates and propagates spans without posting them anywhere.
+  tracing:
+    export:
+      otlp:
+        enabled: ${OTEL_TRACES_ENABLED:false}
+    # Every span is sampled locally; a production deployment would lower this and say so.
+    sampling:
+      probability: ${OTEL_TRACES_SAMPLING:1.0}
+    propagation:
+      type: W3C
+  opentelemetry:
+    tracing:
+      export:
+        otlp:
+          endpoint: ${OTEL_TRACES_ENDPOINT:http://localhost:4318/v1/traces}
   endpoints:
     web:
       exposure:
-        include: health,info
+        # prometheus is scraped by Prometheus on the internal Compose network; it is never
+        # published through the front door.
+        include: health,info,prometheus
   endpoint:
     health:
       # Boot 4.2 enables the liveness and readiness groups by default. Readiness is widened with the
@@ -56,5 +83,8 @@ springdoc:
     path: /swagger-ui.html
 
 logging:
-  pattern:
-    level: "%5p [traceId=%X{traceId:-none}]"
+  structured:
+    format:
+      # One JSON object per line (ECS) on stdout: service.name, trace.id, span.id and the MDC
+      # (requestId, and reservationId/eventId while a consumer handles an event).
+      console: ${EVENTFLOW_LOG_FORMAT:ecs}

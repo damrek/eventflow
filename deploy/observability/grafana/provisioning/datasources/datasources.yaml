@@ -1,0 +1,27 @@
+# Grafana datasources for the EventFlow stack. The uids are referenced by the provisioned
+# dashboards ("prometheus" and "tempo"), so a dashboard never depends on a display name.
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+    jsonData:
+      timeInterval: 10s
+
+  - name: Tempo
+    uid: tempo
+    type: tempo
+    access: proxy
+    url: http://tempo:3200
+    editable: false
+    jsonData:
+      # The dashboards show traces next to metrics; this is the pair Tempo links back to.
+      tracesToMetrics:
+        datasourceUid: prometheus
+      serviceMap:
+        datasourceUid: prometheus
