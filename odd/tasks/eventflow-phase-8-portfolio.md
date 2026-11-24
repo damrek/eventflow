@@ -16,12 +16,15 @@
 
 ## Specs
 
-- **S1 — Frontend lint and format, without new runtime behaviour.** `frontend/` gains ESLint 9 (flat
+- **S1 — Frontend lint and format, without new runtime behaviour.** `frontend/` gains ESLint (flat
   config) and Prettier, pinned exactly in `package.json` and `package-lock.json`:
-  `eslint@9.39.5`, `@eslint/js@9.39.5`, `typescript-eslint@8.73.0`, `eslint-plugin-react-hooks@7.1.1`,
+  `eslint@10.15.0`, `@eslint/js@10.0.1`, `typescript-eslint@8.73.0`, `eslint-plugin-react-hooks@7.1.1`,
   `eslint-config-prettier@10.1.8`, `prettier@3.10.1`, `globals@17.14.0`. Versions are those npm
   reports as published before 2026-11-21, because `~/.npmrc` enforces `min-release-age=3` and
-  `ignore-scripts=true`; the pins are exact, never a range (ADR 0012).
+  `ignore-scripts=true`; the pins are exact, never a range (ADR 0012). ESLint 10 was chosen after
+  `9.39.5` installed with a deprecation notice ("no longer supported"); `10.15.0` was published
+  2026-11-13 and satisfies the age gate. `scripts/ci-invariants-test.sh` now also proves that every
+  devDependency is exact *and* that the lockfile agrees with the manifest, so the two cannot drift.
   - Scripts: `lint` (`eslint .`), `format:check` (`prettier --check .`), `format`
     (`prettier --write .`). `npm test` and `npm run build` keep their behaviour.
   - Config: `eslint.config.js` with `js.configs.recommended` + `typescript-eslint` recommended
@@ -37,7 +40,9 @@
     removing it is what makes the check pass. Evidence: `npm run lint`, `npm run format:check`,
     `npm test`, `npm run build` outputs recorded in the Log.
 - **S2 — CI pipeline on GitHub Actions.** `.github/workflows/ci.yml` runs on `push` to `main` and on
-  every `pull_request`, with `concurrency` cancelling superseded runs, and three jobs:
+  every `pull_request`, with `concurrency` cancelling superseded runs, and four jobs: `frontend`,
+  `backend`, an `images` matrix over the five services and `frontend-image` (the Compose nginx target
+  is a different `--target`, so it gets its own job instead of a conditional build argument).
   - `frontend` — `actions/setup-node` with Node 22 and npm cache, `npm ci`, then
     `npm run format:check`, `npm run lint`, `npm test`, `npm run build`.
   - `backend` — `actions/setup-java` (temurin 21) + `gradle/actions/setup-gradle` for the wrapper
@@ -56,8 +61,9 @@
   - Test: `actionlint` is not installed, so the honest check is: every command the workflow runs is
     executed locally with the same JDK/Node majors and passes (Log evidence), the YAML parses
     (`python3 -c 'import yaml,sys; yaml.safe_load(open(...))'`), and a static
-    `scripts/ci-invariants-test.sh` asserts the pins, the jobs, the absence of `npm install` and of
-    load tests. Seeing the run actually green requires a push, which is a human decision (L3).
+    `scripts/ci-invariants-test.sh` (44 checks) asserts the pins, the jobs, the lockfile agreement,
+    the absence of `npm install` and of load tests. Seeing the run actually green requires a push,
+    which is a human decision (L3).
 - **S3 — k6 scenarios and reproducible results.** `docs/performance/k6/` holds two scenarios that
   share one helper:
   - `read-path.js` — `constant-arrival-rate` (or ramping) against `GET /api/events?page=0&size=20`
@@ -65,15 +71,18 @@
     and `http_req_duration p(95)<150`.
   - `reservation-contention.js` — many VUs create holds on an event with a known small capacity,
     each iteration with a unique `Idempotency-Key` and `X-User-Id`; `201` and `422
-    INSUFFICIENT_TICKETS` are both expected answers, anything else is a failure; `setup()` seeds
-    venue + event through Catalog and `teardown()` reads availability and asserts
-    `available + held + sold == capacity`, `available >= 0`, `held === sold` bookkeeping and that the
-    number of `201`s equals the units held.
+    INSUFFICIENT_TICKETS` are both expected answers and anything else is a defect
+    (`holds_other: count==0`); `setup()` seeds venue + event through Catalog and `teardown()` reads
+    availability and asserts `available + held + sold == capacity`, `available >= 0`, `held === the
+    capacity` (so a vanished hold cannot hide behind a balanced sum) and the number of `201`s; the
+    closing availability is also written as the `final_available`/`final_held`/`final_sold` gauges so
+    it lands inside the committed result object.
   - `scripts/load-test.sh [scenario]` starts nothing implicitly: it requires the stack to be up
     (documented), runs the pinned `grafana/k6:2.4.0` image with `--network host`, passes the base URL
-    and scenario options, and writes `docs/performance/results/<date>-<scenario>.json` plus the
-    human summary. k6 v2 was checked: the JS API used (`http`, `check`, `options`, `thresholds`,
-    `setup/teardown`) is unchanged.
+    and scenario options, and writes two files per run — `docs/performance/results/<date>-<scenario>.json`
+    (the result object) and `.txt` (the summary k6 printed) — so a quoted number always exists in the
+    repository, not only in a scrollback. k6 v2 was checked: the JS API used (`http`, `check`,
+    `options`, `thresholds`, `setup/teardown`, `handleSummary`) is unchanged.
   - Results are **real**: `docs/performance/README.md` and one dated results file record the hardware
     (`lscpu`, `free -h`, Docker version), the stack profile, the exact command, k6's summary and the
     thresholds' verdict. No projected or "typical" numbers, and a scenario that misses its threshold
@@ -92,18 +101,20 @@
   make it interesting (one conditional `UPDATE`, outbox/inbox, saga compensation, Redis as throttle
   only), a "how each claim is proven" table mapping invariant → test → command, a screenshot section
   (S6), a "what this does not do" limitations section, and links to `docs/adr`, `docs/performance`
-  and the phase documents. The roadmap table moves Phase 8 to `done`. Everything stated is checkable
-  in this repository: no coverage percentage, no user count, no performance number that S3 did not
-  measure on this machine.
+  and the phase documents. The proof table names the module each command runs next to the test, and
+  `scripts/docs-proof-table-test.sh` fails when a row's test does not live in that module (a verifier
+  found three rows pointing at the wrong Gradle project). The roadmap table moves Phase 8 to `done`.
+  Everything stated is checkable in this repository: no coverage percentage, no user count, no
+  performance number that S3 did not measure on this machine.
 - **S6 — Scripted demo and real screenshots.** `scripts/demo.sh` walks the documented flow against
   the running stack with `curl` only (`jq` for ids), printing each step with what it proves: seed a
   venue, create and publish an event, watch Booking provision inventory, join the waiting room, hold
   tickets, checkout, wait for the payment result, read the notification mailbox. It exits non-zero
   the moment an expected state does not appear, so it is a smoke test and not a wall of output.
   `docs/assets/*.png` are screenshots of the real SPA and Grafana on this machine (catalog, waiting
-  room, reservation with the paid status, the Grafana business dashboard, one Tempo trace), captured
-  with the browser panel against `http://localhost:8080`, each captioned with what it shows and that
-  it comes from the local Compose stack.
+  room, reservation with the paid status, the Grafana business and REST dashboards and one Tempo
+  trace waterfall), captured with headless Chrome at 1440x900 for the SPA and 1600x1000/1600x1100 for
+  Grafana, each captioned with what it shows and that it comes from the local Compose stack.
 - **S7 — Close-out.** `docs/06-roadmap-calidad.md` keeps its plan text (it is the source spec) but the
   closing phase status lives in the README table and this document; `EVENTFLOW_HANDOFF.md` gains the
   reading order for the portfolio material; `.env.example` documents any new variable (none expected).
@@ -156,7 +167,7 @@
   `npm test` stayed at 22/22 green across both refactors; the Prettier pass touched 21 files (~200
   lines, whitespace and quoting only) and `npm run build` kept producing the same bundle name.
 - **L8 (2026-11-24, evidence T2):** `rhysd/actionlint:1.7.12` accepts `.github/workflows/ci.yml`, and
-  `scripts/ci-invariants-test.sh` pins the contract with 43 checks. The backend job's command was run
+  `scripts/ci-invariants-test.sh` pins the contract with 44 checks. The backend job's command was run
   here with the same JDK: `./gradlew build --rerun-tasks` (a plain `build` was `UP-TO-DATE` and
   therefore no evidence) finished `BUILD SUCCESSFUL in 3m 16s` after the whole Testcontainers suite.
   The frontend job's four commands were run in `frontend/` and all exited `0`. What remains unproven
@@ -173,9 +184,48 @@
   Final runs: `read-path` 950 iterations / 955 requests, 0.00 % failed, avg 2.6 ms, p95 3.1 ms;
   `reservation-contention` 200 attempts, exactly 50 created and 150 refused, and the teardown read
   `capacity 50, available 0, held 50, sold 0`. Both result objects are committed.
-- **L10 (2026-11-24, evidence T6):** `scripts/demo.sh` passed end to end against the Compose stack
-  (publish → provisioning → admission → hold → idempotent replay → checkout → `CONFIRMED` →
-  mailbox entry → `available 298, held 0, sold 2`). The OpenChamber browser panel could not be used
+- **L11 (2026-11-24, independent verification):** `gentle-ai-verify` read the document and the branch,
+  re-ran the gates itself and returned **met for S2, S4 and S7; partially met for S1, S3, S5 and S6**
+  with four blockers and eight advisories. The blockers were real:
+  1. the README proof table sent three rows to the wrong Gradle project —
+     `EventPublicationIntegrationTest` is Catalog's, `EventPublishedConsumerTest` and
+     `PaymentSagaIntegrationTest` are Booking's — so a reviewer got `No tests found` or silently
+     skipped a gate;
+  2. the contention scenario had no threshold for an answer that is neither `201` nor `422`, and its
+     teardown never compared the units held with the capacity, while `docs/performance/README.md`
+     claimed a lost unit would fail the run;
+  3. S1 and the Log named ESLint `9.39.5` while the repository ships `10.15.0`;
+  4. S6 listed a Tempo screenshot that did not exist.
+  Its own probes: 22 frontend tests green, both k6 scenarios green, `./gradlew build --stacktrace`
+  `BUILD SUCCESSFUL` in 3m17s (39/39 tasks), both invariant suites and `demo.sh` green, a broken-file
+  probe rejected by ESLint and accepted after removal.
+- **L12 (2026-11-24, corrections and the evidence they produced):**
+  1. The proof table now names the module in the row and `scripts/docs-proof-table-test.sh` pins all
+     eleven rows against the filesystem (`PASS`, after failing once on the old table).
+  2. `reservation-contention.js` gains `holds_other: count==0`, a teardown assertion
+     `held == capacity`, and `final_available`/`final_held`/`final_sold` gauges so the closing
+     availability is in the committed result object. Re-run: 50 created, 150 refused, 0 other,
+     `0 + 50 + 0 = 50`, all five thresholds PASS.
+  3. S1 was amended to ESLint `10.15.0`/`@eslint/js@10.0.1` with the reason (`9.39.5` installs with a
+     "no longer supported" notice), `AGENTS.md` follows, and `ci-invariants-test.sh` now also proves
+     every devDependency is an exact pin *and* that the lockfile agrees (44 checks).
+  4. The trace screenshot exists after all: Grafana Explore renders the waterfall through a deep link
+     with `queryType: traceId`, and `docs/assets/tempo-trace.png` is that render — 12 spans, 4
+     services, the outbox relay and the provider call included.
+  The advisories were actioned too: the iteration-rate wording, the closing availability now being
+  traceable, the runner writing the summary `.txt` next to the JSON, S2 saying four jobs, the
+  actionlint failure printing its own output, S6 stating the two capture resolutions, a
+  "What it does" capability list in the README, and the frontend gates re-run in a `node:22-alpine`
+  container (the CI major) because only Node 26 exists on this host — `npm ci`, `format:check`,
+  `lint`, `npm test` and `npm run build` all exited `0`. That container mount replaced the host's
+  native `rolldown` binary with the musl one, so `npm ci` was re-run on the host afterwards (which
+  also proves the committed lockfile is complete); mounting the live `node_modules` into a container
+  is a bad way to test another platform, and the next run should copy the source and lockfile into a
+  scratch directory instead. Both scenarios were re-run after the
+  changes so every published number matches a committed artifact: `read-path` 949/954 iterations,
+  0.00 % failed, avg 2.0 ms, p95 2.3 ms; `reservation-contention` 50/150/0, avg 50.4 ms, p95 147.3 ms.
+  The verifier's scratch directory (`/tmp/opencode/verifier-phase8-MbYDJb`) was removed.
+ The OpenChamber browser panel could not be used
   for the assets: its window was not being drawn, so `browser.capture` and `browser.click` refused
   while `browser.snapshot` still worked. The screenshots therefore come from headless Chrome
   (`--headless=new --screenshot`, 1440x900, `--virtual-time-budget`) against the same stack, with one

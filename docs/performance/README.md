@@ -19,11 +19,14 @@ Both seed their own venue and event through the front door (`POST /api/catalog/v
 `EventPublished` (ADR 0009) and then send load at `http://localhost:8080`. Each iteration uses its own
 user and `Idempotency-Key`, because both the rate limiter and idempotency are per user.
 
-`reservation-contention` treats `422 INSUFFICIENT_TICKETS` as a **correct** answer: `holds_created`
-must equal the capacity and `holds_refused` must equal the attempts minus the capacity. Both are
-thresholds, so an oversell — or a lost unit — fails the run instead of hiding in a log line. Its
-`teardown` reads availability afterwards and throws when `available + held + sold != capacity` or a
-counter went negative.
+`reservation-contention` treats `422 INSUFFICIENT_TICKETS` as a **correct** answer and everything else
+as a defect: `holds_created` must equal the capacity, `holds_refused` must equal the attempts minus
+the capacity and `holds_other` must be `0`, all three as thresholds. Its `teardown` then reads the
+availability and throws when `available + held + sold != capacity`, when a counter went negative, or
+when the units actually held are not exactly the capacity — a hold that vanished would keep the sum
+balanced while quietly losing a ticket. The closing availability is also written as the
+`final_available` / `final_held` / `final_sold` gauges, so the numbers a document quotes are inside
+the committed result object instead of only in a console line.
 
 ## Running them
 
@@ -35,27 +38,29 @@ VUS=40 CAPACITY=50 ITERATIONS=5 ./scripts/load-test.sh reservation-contention   
 ```
 
 The runner uses the pinned `grafana/k6:2.4.0` image with `--network host` (so the base URL is the
-same inside and outside the container) and writes `results/<timestamp>-<scenario>.json`. `BASE_URL`
-points it elsewhere. A threshold failure exits non-zero: the command is the gate.
+same inside and outside the container) and writes two files per run: `results/<timestamp>-<scenario>.json`
+(the complete result object) and `results/<timestamp>-<scenario>.txt` (the summary k6 printed).
+`BASE_URL` points it elsewhere. A threshold failure — or a thrown teardown assertion — exits
+non-zero: the command is the gate.
 
 ## Recorded run — 2026-11-24
 
 **Hardware:** Intel Core i5-10400F (6 cores, 12 threads), 30 GiB RAM, Linux 7.0.0, Docker 29.1.3,
 Docker Compose v5.7.0. **Stack:** `core` + `app` profiles on one host — PostgreSQL, RabbitMQ, Redis
-and the six `eventflow/*:local` images, no observability profile, no k3s.
+and the six `eventflow/*:local` images, no k3s.
 
-The stack was already serving traffic (`scripts/demo.sh` had run the full flow) before the load, so
-these numbers describe a warm JVM, not a cold start.
+The stack was already serving traffic (`scripts/demo.sh` and the observability gate had run) before
+the load, so these numbers describe a warm JVM, not a cold start.
 
-### `read-path` — 20 iterations/s for 30 s, 80 % list / 20 % availability
+### `read-path` — ramps to 20 iterations/s, holds 30 s, ~60 s total (80 % list / 20 % availability)
 
 | Metric | Value | Threshold |
 | --- | --- | --- |
-| Iterations / requests | 950 / 955 in 60.5 s | — |
+| Iterations / requests | 949 / 954 in 60.5 s | — |
 | Failed requests | 0.00 % | `< 1 %` |
-| Latency avg / p95 / max | 2.6 ms / 3.1 ms / 14.0 ms | `p(95) < 150 ms`, `p(99) < 400 ms` |
+| Latency avg / p95 / max | 2.0 ms / 2.3 ms / 5.7 ms | `p(95) < 150 ms`, `p(99) < 400 ms` |
 
-Raw: `results/2026-11-24T12-15-11-read-path.json`.
+Raw: `results/2026-11-24T14-08-48-read-path.json` and its `.txt` summary.
 
 ### `reservation-contention` — 40 VUs × 5 iterations against 50 units
 
@@ -64,12 +69,12 @@ Raw: `results/2026-11-24T12-15-11-read-path.json`.
 | Attempts | 200 | — |
 | Holds created (`201`) | 50 | `== 50` |
 | Refused for stock (`422`) | 150 | `== 150` |
-| Other answers | 0 | — |
+| Any other answer | 0 | `== 0` |
 | Failed requests | 0.00 % | `< 1 %` |
-| Latency avg / p95 / max | 62.6 ms / 159.3 ms / 221.3 ms | `p(95) < 300 ms` |
-| Availability after the run | capacity 50, available 0, held 50, sold 0 | `available + held + sold = capacity` |
+| Latency avg / p95 / max | 50.4 ms / 147.3 ms / 183.9 ms | `p(95) < 300 ms` |
+| Availability after the run (`final_*`) | available 0, held 50, sold 0 of capacity 50 | `available + held + sold = capacity`, `held == capacity` |
 
-Raw: `results/2026-11-24T12-17-37-reservation-contention.json`.
+Raw: `results/2026-11-24T14-06-53-reservation-contention.json` and its `.txt` summary.
 
 The write path is an order of magnitude slower than the read path because every attempt is a real
 `UPDATE` against PostgreSQL inside a transaction that also writes the outbox row and claims the

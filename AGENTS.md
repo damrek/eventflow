@@ -86,7 +86,7 @@ cd frontend && npm run build          # tsc -b + Vite production build
 - The Phase 8 gate: `scripts/ci-invariants-test.sh` (the workflow's commands, pins and permissions,
   plus actionlint) and the two k6 scenarios under `docs/performance/k6`; `scripts/demo.sh` is the
   same flow the README documents, asserted. Frontend lint/format gates are `npm run lint` and
-  `npm run format:check` (ESLint 9 + Prettier, exact pins). A green pipeline can only be observed
+  `npm run format:check` (ESLint 10 + Prettier, exact pins). A green pipeline can only be observed
   after a push, which is a human decision.
 
 ## Layout and ownership

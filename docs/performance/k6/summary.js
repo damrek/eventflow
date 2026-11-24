@@ -33,12 +33,15 @@ export function summaryText(data) {
     .map(([label, value]) => `${label} ${value.toFixed(1)} ms`)
     .join(", ");
   lines.push(`latency: ${latency}`);
-  for (const [name, counters] of [
+  for (const [name, key] of [
     ["holds_created", "count"],
     ["holds_refused", "count"],
     ["holds_other", "count"],
+    ["final_available", "value"],
+    ["final_held", "value"],
+    ["final_sold", "value"],
   ]) {
-    const value = metric(name, counters);
+    const value = metric(name, key);
     if (value !== undefined) lines.push(`${name}: ${value}`);
   }
   return `${lines.filter((line) => line !== "").join("\n")}\n`;

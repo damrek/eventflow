@@ -44,9 +44,12 @@ echo "result: docs/performance/results/${RESULT_FILE}"
 
 # --network host keeps the base URL identical on the host and inside the container; the scripts are
 # mounted read-only, and the container runs as the invoking user so the result file is not root-owned.
+# The summary k6 prints is kept next to the JSON object, so the numbers a document quotes are in the
+# repository, not only in a scrollback buffer.
 docker run --rm --network host \
   --user "$(id -u):$(id -g)" \
   -v "${PWD}/docs/performance/k6:/scripts:ro" \
   -v "${PWD}/docs/performance/results:/results" \
   "${env_args[@]}" \
-  "${K6_IMAGE}" run "/scripts/${SCENARIO}.js"
+  "${K6_IMAGE}" run "/scripts/${SCENARIO}.js" 2>&1 |
+  tee "docs/performance/results/${RESULT_FILE%.json}.txt"

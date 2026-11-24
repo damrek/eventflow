@@ -30,6 +30,26 @@ Around those three sit a Redis waiting room that is a throttle and never the sto
 (ADR 0011), a deterministic payment provider double, and one OpenTelemetry trace that crosses HTTP,
 the outbox relay and the broker hops.
 
+## What it does
+
+- **Catalog** — venues, events with ticket types, and a `DRAFT → PUBLISHED` publication that enforces
+  the capacity, price and unique-name rules; only published events are on sale.
+- **Booking** — a live availability view, a hold created once per `Idempotency-Key`, cancellation,
+  an expiry worker that releases overdue holds, and the payment result that confirms or compensates.
+- **Waiting room** — per-event queue with a server-assigned position, batch admission, short-lived
+  admission tokens, and a per-user rate limit shared by every Booking replica.
+- **Payment** — an asynchronous authorization through the provider double, wrapped in a circuit
+  breaker, with a refund requested when an approval arrives after the reservation expired.
+- **Notification** — a user mailbox built only from consumed booking events, idempotent by
+  construction.
+- **One origin** — the SPA calls `/api/catalog`, `/api/booking` and `/api/notification` on its own
+  origin; nginx (Compose) or Traefik (k3d) rewrites the prefix, so the browser never learns where a
+  service lives.
+- **Observability** — Prometheus metrics with business meters, four provisioned Grafana dashboards,
+  ECS JSON logs carrying the trace id, and one Tempo trace per booking.
+- **Reproducible delivery** — CI on every PR, deterministic load scenarios, Compose and k3d stacks, and
+  a demo script that asserts the whole flow.
+
 ## Architecture
 
 ```
@@ -73,9 +93,9 @@ The full message flow, with the routing keys and the compensation path, is in
 | Claim | Test | Command |
 | --- | --- | --- |
 | 100 units, 200 simultaneous holds: exactly 100 held, never negative, `available + held + sold = capacity` | `ReservationConcurrencyTest` | `./gradlew :booking:test --tests "*ReservationConcurrencyTest"` |
-| A stopped broker leaves the event in the outbox and the relay publishes it when the broker returns | `EventPublicationIntegrationTest` | `./gradlew :booking:test --tests "*EventPublicationIntegrationTest"` |
-| A duplicate delivery produces one effect; an unreadable event ends in the DLQ | `NotificationConsumerTest`, `EventPublishedConsumerTest` | `./gradlew :notification:test` |
-| Payment approves, rejects, times out, survives a duplicate and compensates a late authorization | `PaymentConsumerTest`, `PaymentSagaIntegrationTest`, `PaymentGatewayCircuitBreakerTest` | `./gradlew :payment:test` |
+| A stopped broker leaves the event in the outbox and the relay publishes it when the broker returns | `EventPublicationIntegrationTest` (Catalog) | `./gradlew :catalog:test --tests "*EventPublicationIntegrationTest"` |
+| A duplicate delivery produces one effect; an unreadable event ends in the DLQ | `NotificationConsumerTest`, `EventPublishedConsumerTest` (Booking) | `./gradlew :notification:test :booking:test` |
+| Payment approves, rejects, times out, survives a duplicate and compensates a late authorization | `PaymentConsumerTest`, `PaymentGatewayCircuitBreakerTest` (Payment), `PaymentSagaIntegrationTest` (Booking) | `./gradlew :payment:test :booking:test` |
 | The waiting room admits in batches, tokens expire, two replicas share one window, a Redis restart never oversells | `WaitingRoomIntegrationTest`, `WaitingRoomRateLimitTest`, `RateLimitSharedStateTest`, `WaitingRoomRedisOutageTest` | `./gradlew :booking:test` |
 | The SPA walks catalog → waiting room → reservation → payment → mailbox with no simulated confirmation | `criticalFlow.test.tsx` | `cd frontend && npm test` |
 | One trace links the Booking request, the broker hops, the payment and the notification consumer | `observability-verify.sh` | `./scripts/observability-verify.sh` |
@@ -90,8 +110,8 @@ Two k6 scenarios, measured on this machine and committed with their raw results
 
 | Scenario | Result on the recorded run |
 | --- | --- |
-| `read-path` — event list + availability at 20 iterations/s | 0 % failed, avg 2.6 ms, p95 3.1 ms |
-| `reservation-contention` — 40 VUs × 5 attempts on 50 units | exactly 50 holds created, 150 refused, `0 + 50 + 0 = 50` after the run |
+| `read-path` — event list + availability, ramping to 20 iterations/s | 0 % failed, avg 2.0 ms, p95 2.3 ms |
+| `reservation-contention` — 40 VUs × 5 attempts on 50 units | exactly 50 holds created, 150 refused, 0 other answers, `0 + 50 + 0 = 50` after the run |
 
 Those numbers describe one host and one warm stack; the README of the scenarios says what they do
 **not** prove.
@@ -109,10 +129,11 @@ metrics, not mockups.
 | Waiting room: position and waiting count from Redis, refreshed every 2 s | Reservation: `CONFIRMED` reported by Booking, payment status from the saga |
 | ![The business dashboard](docs/assets/grafana-business.png) | ![The REST dashboard](docs/assets/grafana-rest.png) |
 | Business dashboard: attempts, confirmations, conflicts, expirations, waiting users and the three provider failure reasons — provisioned from JSON, not clicked | REST dashboard: p50/p95/p99 per service, 5xx ratio and errors by status |
+| ![One booking as a single trace](docs/assets/tempo-trace.png) | |
+| One booking, one trace: the checkout request, the outbox relay, `payment.requested`, the provider call, `payment.authorized`, the result consumer and the notification consumer — 12 spans, 4 services, 1.89 s | |
 
-One trace per booking is proven by `./scripts/observability-verify.sh`, which asserts that a single
-Tempo trace id carries spans from Booking, Payment and Notification and that the same id appears in
-Booking's JSON log; a screenshot of a waterfall would add nothing a script cannot check.
+Those screenshots come from the local stack, not from a design tool. The trace id in the image is the
+one `./scripts/observability-verify.sh` asserted during that run.
 
 ## Stack
 
@@ -307,7 +328,8 @@ cd frontend && npm run lint           # ESLint (typescript-eslint + react-hooks)
 cd frontend && npm test               # Vitest + Testing Library
 cd frontend && npm run build          # tsc -b + Vite production build
 
-./scripts/ci-invariants-test.sh       # the CI contract, statically (43 checks + actionlint)
+./scripts/ci-invariants-test.sh       # the CI contract, statically (44 checks + actionlint)
+./scripts/docs-proof-table-test.sh    # every test in the table above lives in the module it names
 ./scripts/demo.sh                     # the documented flow, asserted, against a running stack
 ./scripts/load-test.sh read-path      # k6, see docs/performance
 ```

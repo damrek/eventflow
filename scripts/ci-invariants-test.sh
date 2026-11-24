@@ -66,6 +66,27 @@ done
 require frontend/package.json '"lint": "eslint \."' 'npm run lint exists'
 require frontend/package.json '"format:check": "prettier --check \."' 'npm run format:check exists'
 require frontend/package.json '"format": "prettier --write \."' 'npm run format exists'
+# S1: an exact pin in package.json is only worth something if the lockfile agrees with it.
+if python3 - frontend/package.json frontend/package-lock.json <<'PY'
+import json, sys
+
+manifest = json.load(open(sys.argv[1]))
+locked = json.load(open(sys.argv[2]))["packages"][""].get("devDependencies", {})
+problems = [
+    name
+    for name, version in manifest["devDependencies"].items()
+    if not version[0].isdigit() or (name in locked and locked[name] != version)
+]
+if problems:
+    print("not an exact pin, or the lockfile disagrees: " + ", ".join(sorted(problems)), file=sys.stderr)
+    sys.exit(1)
+PY
+then
+  printf 'ok   every devDependency is an exact pin the lockfile matches\n'
+else
+  printf 'FAIL a frontend devDependency is a range or the lockfile disagrees\n' >&2
+  failures=$((failures + 1))
+fi
 for f in frontend/eslint.config.js frontend/.prettierrc.json frontend/.prettierignore; do
   if [ -f "$f" ]; then printf 'ok   %s exists\n' "$f"
   else printf 'FAIL %s is missing\n' "$f" >&2; failures=$((failures + 1)); fi
@@ -75,12 +96,14 @@ require frontend/eslint.config.js 'eslint-config-prettier' 'ESLint defers format
 require frontend/eslint.config.js 'react-hooks' 'ESLint keeps the hooks rules'
 
 # S2: when Docker is available, the workflow is parsed by actionlint (the same version CI reviewers
-# run); without Docker the static checks above still hold.
+# run); without Docker the static checks above still hold. A non-zero exit is reported with its own
+# reason, because actionlint also refuses to run outside a git checkout (exit 3).
 if command -v docker >/dev/null 2>&1; then
-  if docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.12 >/dev/null 2>&1; then
+  if lint_output=$(docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.12 2>&1); then
     printf 'ok   actionlint accepts the workflow\n'
   else
-    printf 'FAIL actionlint rejects the workflow\n' >&2; failures=$((failures + 1))
+    printf 'FAIL actionlint did not accept the workflow:\n%s\n' "$lint_output" >&2
+    failures=$((failures + 1))
   fi
 else printf 'skip actionlint (docker is not available)\n'; fi
 
