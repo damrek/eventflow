@@ -111,6 +111,15 @@ require .gitignore '^\*\.key$' '.gitignore covers *.key files'
 require .gitignore '^\*\.jks$' '.gitignore covers keystores'
 require .gitignore '^local\.properties$' '.gitignore covers local.properties'
 
+# The k3d load balancer is the other host door: k3d binds every interface when the HOST part of the
+# mapping is omitted, so the check reads the declared value instead of trusting one spelling.
+k3d_port_line=$(awk '/--port "/ { sub(/^[ \t]+/, ""); print; exit }' scripts/k3d-up.sh)
+case "$k3d_port_line" in
+  '--port "127.0.0.1:'*) printf 'ok   the k3d ingress publishes on loopback only\n' ;;
+  '') printf 'FAIL scripts/k3d-up.sh declares no ingress --port\n' >&2; failures=$((failures + 1)) ;;
+  *) printf 'FAIL the k3d ingress is not loopback-bound: %s\n' "$k3d_port_line" >&2; failures=$((failures + 1)) ;;
+esac
+
 if [ "$failures" -ne 0 ]; then
   printf '%d deployment invariant(s) broken\n' "$failures" >&2
   exit 1
