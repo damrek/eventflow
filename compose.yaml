@@ -238,7 +238,10 @@ services:
       BOOKING_UPSTREAM: booking:8082
       NOTIFICATION_UPSTREAM: notification:8083
     ports:
-      - "${APP_PORT:-8080}:80"
+      # Loopback only, like every other published port: the SPA and /api/* share this one origin,
+      # and the API has no authentication, so binding it to 0.0.0.0 would hand any peer on the
+      # network read access to every user's mailbox.
+      - "127.0.0.1:${APP_PORT:-8080}:80"
     depends_on:
       catalog:
         condition: service_healthy
