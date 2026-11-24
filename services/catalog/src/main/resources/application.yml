@@ -39,6 +39,12 @@ eventflow:
       confirm-timeout: PT5S
 
 management:
+  metrics:
+    distribution:
+      # HTTP latency percentiles need histogram buckets: without them the dashboards could only
+      # show an average, and the documented latency panels would have nothing to quantile.
+      percentiles-histogram:
+        http.server.requests: true
   # Tracing (S3). Export is opt-in: the collector only exists in the observability profile, so a
   # local bootRun or a test run creates and propagates spans without posting them anywhere.
   tracing:

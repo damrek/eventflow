@@ -108,7 +108,7 @@
 - **T2 — Business meters and their tests** (S2). Route: inline. Done: `0b70b79`.
 - **T3 — Tracing deps, HTTP/AMQP observation, outbox traceparent** (S3). Route: inline.
   Done: `4d5d75d`.
-- **T4 — ECS structured logs and MDC ids** (S4). Route: inline.
+- **T4 — ECS structured logs and MDC ids** (S4). Route: inline. Done: see `git log` `feat(logs)`.
 - **T5 — Observability profile, configs and dashboards** (S5). Route: inline.
 - **T6 — Stack scripts and end-to-end verification** (S6). Route: inline.
 - **T7 — Docs, ADR and independent verification** (S7). Route: inline with an independent verifier.
@@ -178,3 +178,11 @@
   first RED of `OutboxTraceTest`: the broker got the same trace id with a new parent id (`03` flags
   = sampled + random trace id), which is why the assertion compares trace ids and not whole
   headers.
+- **L12 (2026-11-24, evidence T4):** `logging.structured.format.console=ecs` is Boot 4.2's own
+  structured logging, so no encoder dependency was added. Verified on a real `bootRun` of the
+  simulator: the startup line is one JSON object with `"service":{"name":"payment-simulator-service"}`,
+  `@timestamp`, `ecs.version` and no stack of plain text. `EventLogContext` (Booking and
+  Notification, `shared/messaging`) puts `eventId`/`reservationId` in the MDC around the consumer
+  effect and removes them on close, including when the handler throws; three unit tests per service
+  pin the present/absent/cleared cases. The `trace.id` half of the contract is proven end to end in
+  S6, because a unit test cannot honestly assert what the ECS encoder writes for an active span.

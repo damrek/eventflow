@@ -1,0 +1,57 @@
+# Prometheus for the EventFlow Compose stack (profile "observability").
+#
+# Two kinds of target:
+#   * every service on /actuator/prometheus (Micrometer), labelled with the Compose service name;
+#   * RabbitMQ on its own Prometheus listener. RabbitMQ 4 serves /metrics on port 15692, NOT under
+#     the management port 15672 (verified: 404 there, 200 here), so no plugin or file is needed.
+global:
+  scrape_interval: 10s
+  evaluation_interval: 10s
+
+scrape_configs:
+  - job_name: eventflow-services
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["catalog:8081"]
+        labels:
+          service: catalog
+      - targets: ["booking:8082"]
+        labels:
+          service: booking
+      - targets: ["notification:8083"]
+        labels:
+          service: notification
+      - targets: ["payment:8084"]
+        labels:
+          service: payment
+      - targets: ["payment-simulator:8085"]
+        labels:
+          service: payment-simulator
+
+  # /metrics aggregates per vhost; the per-queue series live behind /metrics/detailed, one family
+  # per query parameter. queue_coarse_metrics carries messages/ready/unacked, queue_consumer_count
+  # the consumers, both labelled with the queue name the dashboards filter on.
+  - job_name: rabbitmq-queues
+    metrics_path: /metrics/detailed
+    params:
+      family:
+        - queue_coarse_metrics
+        - queue_consumer_count
+    static_configs:
+      - targets: ["rabbitmq:15692"]
+        labels:
+          service: rabbitmq
+
+  - job_name: rabbitmq
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["rabbitmq:15692"]
+        labels:
+          service: rabbitmq
+
+  # Prometheus scrapes itself so the dashboards can show whether the scrape is healthy at all.
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+        labels:
+          service: prometheus

@@ -1,0 +1,30 @@
+# Tempo for the EventFlow Compose stack (profile "observability").
+#
+# Single binary, local block storage, no dependency on object storage: traces live in a Docker
+# volume and are lost with it, exactly like the rest of the local stack. The OTLP receiver is what
+# the collector forwards to; 3200 is Tempo's own HTTP API, which Grafana queries.
+server:
+  http_listen_port: 3200
+  grpc_listen_port: 9095
+  log_level: warn
+
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:4317
+        http:
+          endpoint: 0.0.0.0:4318
+
+storage:
+  trace:
+    backend: local
+    wal:
+      path: /var/tempo/wal
+    local:
+      path: /var/tempo/blocks
+
+# No anonymous usage reporting: this stack phones nowhere.
+usage_report:
+  reporting_enabled: false
