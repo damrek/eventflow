@@ -212,3 +212,8 @@
 - **L15 (2026-11-24, verification honest-boundary):** the trace check filters Tempo by the run's own
   start timestamp (`FLOW_START`), after a first version accepted a trace from an earlier run: a test
   that can pass on stale evidence is not a test.
+- **L16 (2026-11-24, evidence, full build):** `./gradlew build` is green with the whole suite
+  (39 actionable tasks, `BUILD SUCCESSFUL`), and `scripts/deployment-invariants-test.sh` still
+  passes (the Phase 6 invariants are untouched). Receipt-driven development is off in this clone
+  (`gentle-ai review mode status` → `off`, decided by global), so this phase is verified by its own
+  suites, the end-to-end script and one independent verifier, not by a native review.
