@@ -109,8 +109,8 @@
 - **T3 — Tracing deps, HTTP/AMQP observation, outbox traceparent** (S3). Route: inline.
   Done: `4d5d75d`.
 - **T4 — ECS structured logs and MDC ids** (S4). Route: inline. Done: see `git log` `feat(logs)`.
-- **T5 — Observability profile, configs and dashboards** (S5). Route: inline.
-- **T6 — Stack scripts and end-to-end verification** (S6). Route: inline.
+- **T5 — Observability profile, configs and dashboards** (S5). Route: inline. Done: `411e98d`.
+- **T6 — Stack scripts and end-to-end verification** (S6). Route: inline. Done: `1cdadd3`.
 - **T7 — Docs, ADR and independent verification** (S7). Route: inline with an independent verifier.
 
 ## Log
@@ -186,3 +186,29 @@
   effect and removes them on close, including when the handler throws; three unit tests per service
   pin the present/absent/cleared cases. The `trace.id` half of the contract is proven end to end in
   S6, because a unit test cannot honestly assert what the ECS encoder writes for an active span.
+- **L13 (2026-11-24, evidence T5/T6):** the whole stack runs as images. `docker compose --profile
+  core --profile app --profile observability up -d --build` started 13 containers; Prometheus
+  reports `up=1` for the five services, RabbitMQ and itself. `./scripts/observability-verify.sh`
+  passes with 48 checks: the documented flow through the front door, then the five service targets
+  and RabbitMQ up, `booking_attempts_total`/`booking_confirmed_total` above zero,
+  `booking_conflicts_total`/`booking_expired_total`/`payment_failures_total`/`waiting_room_users`
+  present, HTTP latency buckets present, `rabbitmq_queue_messages` scraped, one Tempo trace from
+  this run, the four provisioned dashboards loaded, and a Booking JSON log line with that trace id
+  and the reservation id. All 27 dashboard panels were also verified to return series from
+  Prometheus (a panel with no series is a dead panel).
+- **L14 (2026-11-24, defects found and fixed during T5/T6):**
+  1. `/metrics` on RabbitMQ's management port is `404` (the plugin has its own listener on 15692),
+     and the default `/metrics` is aggregated with **no** `queue` label: per-queue depth and
+     consumers only exist behind `/metrics/detailed?family=queue_coarse_metrics&family=queue_consumer_count`.
+     The Prometheus config now has a second job (`rabbitmq-queues`) with those params, and the
+     messaging dashboard reads `rabbitmq_detailed_queue_*`.
+  2. The `5xx ratio` panel showed "no data" in a healthy stack; it is `(… or vector(0)) / …` now, so
+     zero 5xx reads as zero.
+  3. A PromQL regex cannot carry `\.` (unknown escape): the retry/DLQ matcher uses
+     `(retry[.][0-9]+|dlq)$` instead.
+  4. The ECS formatter renders MDC entries as top-level `traceId`/`spanId` (not `trace.id`), so the
+     log assertion checks `"traceId":"<id>"`. It also renders `service.name` with a `version`
+     sibling, so the service-name check cannot expect a closing brace.
+- **L15 (2026-11-24, verification honest-boundary):** the trace check filters Tempo by the run's own
+  start timestamp (`FLOW_START`), after a first version accepted a trace from an earlier run: a test
+  that can pass on stale evidence is not a test.
